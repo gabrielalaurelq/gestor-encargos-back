@@ -1,0 +1,256 @@
+// Doc 4 — Modelo de Base de Datos v1.4. 11 tablas, UUID en todas salvo
+// origenes_pago (catálogo semilla, Doc 4 Bloque 2). Los índices parciales,
+// GIN/pg_trgm y las políticas RLS del Bloque 4 no son expresables en el DSL
+// de Prisma — viven como SQL agregado a mano en la migración inicial.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EncargoEstado {
+  INGRESADO
+  EN_PROCESO
+  LISTO
+  ENTREGADO
+  PAUSADO
+  CANCELADO
+}
+
+enum PagoTipo {
+  ADELANTO
+  PAGO
+}
+
+enum NegocioPlan {
+  FREE
+  PREMIUM
+}
+
+model Negocio {
+  id                     String      @id @default(uuid())
+  nombreNegocio          String?     @map("nombre_negocio")
+  googleUid              String      @unique @map("google_uid")
+  siguienteBloqueNumeros Int         @default(1) @map("siguiente_bloque_numeros")
+  plan                   NegocioPlan @default(FREE)
+  planVenceEn            DateTime?   @map("plan_vence_en")
+  creadoEn               DateTime    @default(now()) @map("creado_en")
+  actualizadoEn          DateTime    @updatedAt @map("actualizado_en")
+
+  clientes         Cliente[]
+  encargos         Encargo[]
+  servicios        Servicio[]
+  dispositivos     Dispositivo[]
+  objetosRecibidos ObjetoRecibido[]
+  trabajos         Trabajo[]
+  materiales       Material[]
+  pagos            Pago[]
+  notas            Nota[]
+  fotos            Foto[]
+
+  @@map("negocios")
+}
+
+model Dispositivo {
+  id               String   @id @default(uuid())
+  negocioId        String   @map("negocio_id")
+  fcmToken         String?  @unique @map("fcm_token")
+  refreshTokenHash String   @unique @map("refresh_token_hash")
+  creadoEn         DateTime @default(now()) @map("creado_en")
+  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+
+  negocio Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  @@index([negocioId])
+  @@map("dispositivos")
+}
+
+model Cliente {
+  id            String   @id @default(uuid())
+  negocioId     String   @map("negocio_id")
+  nombre        String
+  telefono      String?
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  negocio  Negocio   @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  encargos Encargo[]
+
+  @@index([negocioId])
+  @@map("clientes")
+}
+
+model Encargo {
+  id                    String        @id @default(uuid())
+  negocioId             String        @map("negocio_id")
+  clienteId             String        @map("cliente_id")
+  numero                Int?
+  descripcion           String
+  estado                EncargoEstado @default(INGRESADO)
+  precioTotal           Decimal       @default(0) @map("precio_total") @db.Decimal(10, 2)
+  descuento             Decimal       @default(0) @db.Decimal(10, 2)
+  saldoPendiente        Decimal       @default(0) @map("saldo_pendiente") @db.Decimal(10, 2)
+  ubicacionFisica       String?       @map("ubicacion_fisica")
+  notasGenerales        String?       @map("notas_generales")
+  fechaEntregaPrometida DateTime      @map("fecha_entrega_prometida") @db.Date
+  fechaEntregaAcordada  DateTime      @map("fecha_entrega_acordada") @db.Date
+  fechaListo            DateTime?     @map("fecha_listo") @db.Date
+  fechaEntregaReal      DateTime?     @map("fecha_entrega_real") @db.Date
+  creadoEn              DateTime      @default(now()) @map("creado_en")
+  actualizadoEn         DateTime      @updatedAt @map("actualizado_en")
+
+  negocio  Negocio          @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  cliente  Cliente          @relation(fields: [clienteId], references: [id], onDelete: Restrict)
+  objetos  ObjetoRecibido[]
+  trabajos Trabajo[]
+  pagos    Pago[]
+  notas    Nota[]
+  fotos    Foto[]
+
+  @@unique([negocioId, numero])
+  @@index([negocioId, estado, fechaEntregaAcordada])
+  @@index([clienteId, fechaEntregaAcordada])
+  @@map("encargos")
+}
+
+model ObjetoRecibido {
+  id            String    @id @default(uuid())
+  encargoId     String    @map("encargo_id")
+  negocioId     String    @map("negocio_id")
+  descripcion   String
+  creadoEn      DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime  @updatedAt @map("actualizado_en")
+  eliminadoEn   DateTime? @map("eliminado_en")
+
+  encargo  Encargo   @relation(fields: [encargoId], references: [id], onDelete: Cascade)
+  negocio  Negocio   @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  trabajos Trabajo[]
+  fotos    Foto[]
+
+  @@index([negocioId])
+  @@map("objetos_recibidos")
+}
+
+model Foto {
+  id               String    @id @default(uuid())
+  encargoId        String    @map("encargo_id")
+  objetoRecibidoId String?   @map("objeto_recibido_id")
+  negocioId        String    @map("negocio_id")
+  url              String
+  creadoEn         DateTime  @default(now()) @map("creado_en")
+  actualizadoEn    DateTime  @updatedAt @map("actualizado_en")
+  eliminadoEn      DateTime? @map("eliminado_en")
+
+  encargo        Encargo         @relation(fields: [encargoId], references: [id], onDelete: Cascade)
+  objetoRecibido ObjetoRecibido? @relation(fields: [objetoRecibidoId], references: [id], onDelete: Cascade)
+  negocio        Negocio         @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  @@index([negocioId])
+  @@map("fotos")
+}
+
+model Servicio {
+  id            String   @id @default(uuid())
+  negocioId     String   @map("negocio_id")
+  nombre        String
+  precio        Decimal  @db.Decimal(10, 2)
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  negocio  Negocio   @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  trabajos Trabajo[]
+
+  @@index([negocioId])
+  @@map("servicios")
+}
+
+model Trabajo {
+  id               String    @id @default(uuid())
+  encargoId        String    @map("encargo_id")
+  negocioId        String    @map("negocio_id")
+  servicioId       String?   @map("servicio_id")
+  objetoRecibidoId String?   @map("objeto_recibido_id")
+  descripcion      String
+  precio           Decimal   @db.Decimal(10, 2)
+  creadoEn         DateTime  @default(now()) @map("creado_en")
+  actualizadoEn    DateTime  @updatedAt @map("actualizado_en")
+  eliminadoEn      DateTime? @map("eliminado_en")
+
+  encargo        Encargo         @relation(fields: [encargoId], references: [id], onDelete: Cascade)
+  negocio        Negocio         @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  servicio       Servicio?       @relation(fields: [servicioId], references: [id], onDelete: SetNull)
+  objetoRecibido ObjetoRecibido? @relation(fields: [objetoRecibidoId], references: [id], onDelete: SetNull)
+  materiales     Material[]
+
+  @@index([negocioId])
+  @@map("trabajos")
+}
+
+model Material {
+  id            String    @id @default(uuid())
+  trabajoId     String    @map("trabajo_id")
+  negocioId     String    @map("negocio_id")
+  nombre        String
+  cantidad      String?
+  costo         Decimal?  @db.Decimal(10, 2)
+  creadoEn      DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime  @updatedAt @map("actualizado_en")
+  eliminadoEn   DateTime? @map("eliminado_en")
+
+  trabajo Trabajo @relation(fields: [trabajoId], references: [id], onDelete: Cascade)
+  negocio Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  @@index([negocioId])
+  @@map("materiales")
+}
+
+model OrigenPago {
+  id     Int     @id @default(autoincrement()) @db.SmallInt
+  nombre String  @unique
+  activo Boolean @default(true)
+
+  pagos Pago[]
+
+  @@map("origenes_pago")
+}
+
+model Pago {
+  id            String    @id @default(uuid())
+  encargoId     String    @map("encargo_id")
+  negocioId     String    @map("negocio_id")
+  monto         Decimal   @db.Decimal(10, 2)
+  origenId      Int       @map("origen_id")
+  tipo          PagoTipo
+  fecha         DateTime  @default(now()) @db.Date
+  creadoEn      DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime  @updatedAt @map("actualizado_en")
+  eliminadoEn   DateTime? @map("eliminado_en")
+
+  encargo Encargo    @relation(fields: [encargoId], references: [id], onDelete: Cascade)
+  negocio Negocio    @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  origen  OrigenPago @relation(fields: [origenId], references: [id], onDelete: Restrict)
+
+  @@index([negocioId, fecha, tipo, origenId])
+  @@map("pagos")
+}
+
+model Nota {
+  id            String   @id @default(uuid())
+  encargoId     String   @map("encargo_id")
+  negocioId     String   @map("negocio_id")
+  texto         String
+  fecha         DateTime @default(now()) @db.Date
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  encargo Encargo @relation(fields: [encargoId], references: [id], onDelete: Cascade)
+  negocio Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  @@index([negocioId])
+  @@map("notas")
+}
