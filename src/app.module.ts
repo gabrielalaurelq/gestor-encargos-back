@@ -1,19 +1,45 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { LoggerModule } from 'nestjs-pino';
+import { Ambiente, validarEntorno } from './config/env.validation';
+import { configurarLogger } from './config/logger.config';
+import { LIMITE_GENERAL } from './config/rate-limit.config';
+import { AuthModule } from './modules/auth/auth.module';
+import { AuthGuard } from './modules/auth/presentation/guards/auth.guard';
 import { PrismaModule } from './shared/infrastructure/prisma/prisma.module';
+import { AllExceptionsFilter } from './shared/presentation/filters/all-exceptions.filter';
+import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-negocio.guard';
 
-// Doc 8, Bloque 4: @nestjs/config con validación de esquema al arrancar
-// (el esquema de validación se agrega en la Fase 2, junto con las variables
-// de Firebase/R2 que todavía no se usan). Doc 3, Bloque 4: cada ambiente
-// (development/staging/production) trae su propio .env, no committeado —
-// este checkout solo versiona .env.example como plantilla.
-// Sin módulos de negocio todavía (modules/ queda vacío) — Sprint 1-2.
+// Doc 8, Bloque 4: @nestjs/config global con validación de esquema al
+// arrancar (validarEntorno) y logger JSON con nestjs-pino.
+// Doc 8, Bloque 2: AllExceptionsFilter como APP_FILTER; AuthGuard como
+// APP_GUARD global. Doc 5, Bloque 4: rate limiting con ThrottlerNegocioGuard.
+// Los dos guards se registran acá, en este orden, porque el throttler cuenta
+// por negocio y necesita la sesión que deja el AuthGuard.
+// Sin módulos de negocio todavía (modules/ solo tiene auth) — Sprint 1-2.
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      validate: validarEntorno,
     }),
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        configurarLogger(config.getOrThrow<Ambiente>('NODE_ENV')),
+    }),
+    // Almacenamiento en memoria: suficiente con una sola instancia del
+    // backend (MVP). Si se escala horizontalmente, pasar a ThrottlerStorageRedis.
+    ThrottlerModule.forRoot([LIMITE_GENERAL]),
     PrismaModule,
+    AuthModule,
+  ],
+  providers: [
+    { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: APP_GUARD, useClass: ThrottlerNegocioGuard },
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],
 })
 export class AppModule {}

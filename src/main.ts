@@ -1,14 +1,22 @@
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger as PinoLogger } from 'nestjs-pino';
+import { configurarAplicacion } from './app.config';
 import { AppModule } from './app.module';
+import { Ambiente } from './config/env.validation';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // bufferLogs: los logs del arranque se retienen hasta enganchar pino.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(PinoLogger));
 
-  // Doc 5, Bloque 3: errores de formato (DTO inválido) devuelven 400 antes
-  // de llegar a la lógica de negocio.
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  const config = app.get(ConfigService);
+  configurarAplicacion(app, config.getOrThrow<Ambiente>('NODE_ENV'));
 
-  await app.listen(process.env.PORT ?? 3000);
+  // Cierra la conexión de Prisma (onModuleDestroy) ante SIGTERM/SIGINT.
+  app.enableShutdownHooks();
+
+  await app.listen(config.getOrThrow<number>('PORT'));
 }
+
 bootstrap();
