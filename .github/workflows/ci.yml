@@ -1,0 +1,113 @@
+# Doc 3, Bloque 5 — Integración continua. Corre en cada Pull Request y en
+# cada push a main. Los cinco pasos del documento: lint, type-check, tests
+# unitarios, build de verificación y `prisma validate` — más los tests e2e
+# contra un Postgres real con RLS, que es donde vive la garantía de
+# aislamiento por negocio (Doc 4 Bloque 4/5).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  calidad:
+    name: Lint, tipos, tests unitarios y build
+    runs-on: ubuntu-latest
+    env:
+      # `prisma validate` exige que exista la variable del datasource aunque
+      # no se conecte; los tests unitarios no tocan la base.
+      DATABASE_URL: postgresql://sin-uso:sin-uso@localhost:5432/sin-uso
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Validar schema de Prisma
+        run: npx prisma validate
+
+      - name: Lint (sin autocorregir)
+        run: npm run lint:check
+
+      - name: Type-check estricto
+        run: npm run typecheck
+
+      - name: Tests unitarios
+        run: npm test -- --ci
+
+      - name: Build de verificación
+        run: npm run build
+
+  e2e:
+    name: Tests e2e contra Postgres (RLS real)
+    runs-on: ubuntu-latest
+    needs: calidad
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gestor_encargos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # El backend se conecta con el rol de aplicación (NO superusuario), igual
+      # que en desarrollo y producción: si no, RLS no aplica y los tests de
+      # aislamiento fallan a propósito. Ver infra/README.md.
+      DATABASE_URL: postgresql://gestor_app:gestor_app@localhost:5432/gestor_encargos?schema=public
+      NODE_ENV: development
+      JWT_SECRET: secreto-solo-para-ci-de-al-menos-treinta-y-dos-caracteres
+      # Credenciales de plantilla: development las tolera y los e2e reemplazan
+      # Firebase por un doble; R2 no se usa todavía.
+      GOOGLE_CLIENT_ID: reemplazar
+      FIREBASE_PROJECT_ID: reemplazar
+      FIREBASE_CLIENT_EMAIL: reemplazar
+      FIREBASE_PRIVATE_KEY: reemplazar
+      R2_ACCOUNT_ID: reemplazar
+      R2_ACCESS_KEY_ID: reemplazar
+      R2_SECRET_ACCESS_KEY: reemplazar
+      R2_BUCKET_NAME: gestor-encargos-fotos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Crear rol de aplicación (mismo SQL que infra/postgres/init/01-rol-aplicacion.sql)
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/gestor_encargos" -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE gestor_app LOGIN PASSWORD 'gestor_app' NOSUPERUSER NOBYPASSRLS CREATEDB;" \
+            -c "ALTER DATABASE gestor_encargos OWNER TO gestor_app;"
+
+      - name: Aplicar migraciones (como gestor_app, dueño de las tablas)
+        run: npx prisma migrate deploy
+
+      - name: Sembrar catálogos
+        run: npm run prisma:seed
+
+      - name: Tests e2e
+        run: npm run test:e2e

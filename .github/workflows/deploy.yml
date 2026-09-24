@@ -1,0 +1,77 @@
+# Doc 3, Bloque 5 — Entrega continua.
+#   merge a main  → despliegue automático a STAGING
+#   tag vX.Y.Z    → despliegue a PRODUCCIÓN con aprobación manual
+#
+# El proveedor de hosting sigue pendiente de decidir (Railway/Render/Fly.io,
+# Doc 3 Bloque 5), así que este workflow está APAGADO hasta que exista la
+# variable de repositorio DESPLIEGUE_HABILITADO=true. La forma del pipeline
+# ya queda fijada; al elegir proveedor solo hay que reemplazar el último paso
+# de cada job por su CLI y cargar los secretos de cada environment.
+#
+# Configuración en GitHub cuando se habilite:
+#   Settings → Environments → `staging` y `production`
+#     - secret DATABASE_URL (rol NO superusuario, ver infra/README.md)
+#     - en `production`: "Required reviewers" = el paso de aprobación manual
+#   Settings → Variables → DESPLIEGUE_HABILITADO = true
+name: Despliegue
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: despliegue-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    name: Staging (automático desde main)
+    if: github.ref == 'refs/heads/main' && vars.DESPLIEGUE_HABILITADO == 'true'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      # Doc 8, Bloque 1: `prisma migrate deploy` como paso del pipeline antes
+      # de cada despliegue, nunca al arrancar el contenedor.
+      - name: Migraciones en staging
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Desplegar en el proveedor de hosting
+        run: |
+          echo "::error::Proveedor de hosting pendiente (Doc 3 Bloque 5): reemplazar este paso por el CLI de Railway/Render/Fly.io."
+          exit 1
+
+  produccion:
+    name: Producción (tag + aprobación manual)
+    if: startsWith(github.ref, 'refs/tags/v') && vars.DESPLIEGUE_HABILITADO == 'true'
+    runs-on: ubuntu-latest
+    # El environment `production` con "Required reviewers" es el paso de
+    # aprobación explícito que pide el Doc 3 para un equipo pequeño.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      - name: Migraciones en producción
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Desplegar en el proveedor de hosting
+        run: |
+          echo "::error::Proveedor de hosting pendiente (Doc 3 Bloque 5): reemplazar este paso por el CLI de Railway/Render/Fly.io."
+          exit 1

@@ -52,10 +52,19 @@ Doc 5 Bloque 1 / Doc 8 Bloque 2, con la estructura de capas del Doc 8 Bloque 1:
 - `trust proxy` activo fuera de `development` para que la IP real llegue detrás del proxy del hosting.
 - Tests de integración: `test/prisma-negocio.e2e-spec.ts` (dos negocios, ninguno ve ni toca lo del otro, por extensión y por RLS) y `test/rate-limit.e2e-spec.ts`.
 
+### Fase 4 — CI/CD e imagen de despliegue
+
+- **`Dockerfile`** multi-etapa (deps → build → runtime `node:24-alpine`, usuario sin privilegios, `npm prune --omit=dev`). Las migraciones **no** corren al arrancar el contenedor: las aplica el pipeline (Doc 8 Bloque 1).
+- **`.github/workflows/ci.yml`** — en cada PR y push a `main`: job `calidad` (`prisma validate`, `lint:check`, `typecheck`, unitarios, build) y job `e2e` contra un Postgres 16 de servicio, creando el rol `gestor_app` con el mismo SQL que `infra/postgres/init/` para que **RLS aplique también en CI** (con el superusuario los tests de aislamiento pasarían en falso).
+- **`.github/workflows/deploy.yml`** — `main` → staging, tag `vX.Y.Z` → producción con aprobación manual (GitHub Environments). **Apagado** hasta que exista la variable `DESPLIEGUE_HABILITADO=true`: el proveedor de hosting sigue pendiente (Doc 3 Bloque 5), y el último paso de cada job falla a propósito con el motivo.
+- `.nvmrc` (24) como única fuente de la versión de Node para CI y Docker; `engines.node >= 22` en `package.json`.
+
+**Sprint 0 completo.**
+
 ## Pendiente
 
-- Fase 4 (Sprint 0): CI/CD (GitHub Actions).
 - Sprint 1-2: módulos de negocio (Clientes, Servicios, Encargos) en `src/modules/`.
+- Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).
 
 ## Códigos de error no de negocio
 
