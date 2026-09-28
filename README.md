@@ -61,9 +61,37 @@ Doc 5 Bloque 1 / Doc 8 Bloque 2, con la estructura de capas del Doc 8 Bloque 1:
 
 **Sprint 0 completo.**
 
+### Sprint 1 — Módulo `clientes` (`src/modules/clientes/`)
+
+Primer Bounded Context con las cuatro capas del Doc 8 Bloque 1, y primer uso real de `PrismaNegocio` extremo a extremo.
+
+- `domain/` — `Telefono` (primer Value Object del Doc 2: inmutable, se autovalida, igualdad por valor), `Cliente` (agregado raíz; `crear()` para altas y `reconstituir()` para rehidratar), errores del catálogo y el puerto `ClienteRepository`.
+- `application/` — DTOs con `class-validator` y los casos de uso `Listar`, `Crear`, `Obtener`, `Actualizar`.
+- `infrastructure/` — `PrismaClienteRepository` sobre `PrismaNegocio`; el conteo de la paginación va en la misma transacción que la página.
+- `presentation/` — `ClientesController` y el mapper a snake_case.
+- Compartido y reutilizable por Servicios/Encargos: `PaginacionQuery` (`?pagina=&por_pagina=`, tope 100) y `respuestaPaginada()` → `{datos, pagina, por_pagina, total}` (Doc 5 Bloque 4).
+
+Endpoints: `GET /clientes?q=&pagina=&por_pagina=`, `POST /clientes`, `GET /clientes/{id}`, `PATCH /clientes/{id}`.
+
+**Decisiones tomadas en este módulo (no estaban cerradas en los Docs):**
+
+| Decisión | Elección | Motivo |
+|---|---|---|
+| Idempotencia del `POST` | El cuerpo acepta un `id` UUID opcional; si ese id ya existe en el negocio, responde `200` con el existente en vez de `201` | El Doc 3 fija UUIDs generados en el dispositivo y el Doc 5 Bloque 1 reintenta cada escritura de la cola Outbox como un POST normal. Si se pierde la *respuesta*, el reintento duplicaría. **El Doc 5 Bloque 2 debería enmendarse: hoy describe el cuerpo sin `id`.** |
+| Carrera entre dos reintentos | El que choca contra la llave primaria relee y devuelve la fila del otro | Ambos pasan la comprobación previa; sin esto, uno devolvería `500`. |
+| Reusar el `id` de otro negocio | `409 CONFLICTO` con mensaje neutro | La llave primaria es global, los negocios no. Decir de quién es el id confirmaría su existencia en otro tenant — justo lo que el Doc 5 evita al preferir `404` sobre `403`. No es enumerable: habría que adivinar un UUID v4 entero. |
+| Formato del teléfono | E.164 estricto, sin normalizar | Normalizar obligaría al backend a adivinar el país; el Doc 1 ya pone esa decisión en la UI (9 dígitos peruanos por defecto + toggle internacional). Una sola verdad. |
+| `nombre` vacío y teléfono inválido | `422` desde el dominio, no `400` desde el DTO | El catálogo del Doc 5 Bloque 3 nombra `CLIENTE_NOMBRE_VACIO` como código de negocio; además `"   "` pasa `@IsNotEmpty()` pero viola el `CHECK length(trim(...)) > 0` del Doc 4. Los DTOs solo validan tipo y formato. |
+| `PATCH` sin cambios reales | No escribe | `actualizado_en` alimenta el delta sync (LWW); moverlo sin motivo haría que todos los dispositivos se bajaran de nuevo una fila idéntica. |
+| Semántica del `PATCH` parcial | Campo ausente = sin cambios; `"telefono": null` = borrar | `whitelist: true` conserva las claves declaradas que llegan en `null`, así que `undefined` y `null` se distinguen. |
+
+**Fuera de alcance hasta Sprint 2** (dependen del módulo Encargos, que aún no existe): `GET /clientes/{id}/encargos` y el resumen de Historial dentro de `GET /clientes/{id}`.
+
 ## Pendiente
 
-- Sprint 1-2: módulos de negocio (Clientes, Servicios, Encargos) en `src/modules/`.
+- Sprint 1-2: módulos `servicios` y `encargos` en `src/modules/`.
+- Doc 5 Bloque 2: 4 endpoints sin implementar — `GET/PATCH /negocio` y `POST/DELETE /dispositivos/fcm-token`.
+- Enmendar el Doc 5 Bloque 2 con el `id` opcional del `POST` y su respuesta `200` idempotente.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).
 
 ## Códigos de error no de negocio

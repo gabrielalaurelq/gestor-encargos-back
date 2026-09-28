@@ -8,6 +8,7 @@ import { configurarLogger } from './config/logger.config';
 import { LIMITE_GENERAL } from './config/rate-limit.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { AuthGuard } from './modules/auth/presentation/guards/auth.guard';
+import { ClientesModule } from './modules/clientes/clientes.module';
 import { PrismaModule } from './shared/infrastructure/prisma/prisma.module';
 import { AllExceptionsFilter } from './shared/presentation/filters/all-exceptions.filter';
 import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-negocio.guard';
@@ -18,7 +19,7 @@ import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-ne
 // APP_GUARD global. Doc 5, Bloque 4: rate limiting con ThrottlerNegocioGuard.
 // Los dos guards se registran acá, en este orden, porque el throttler cuenta
 // por negocio y necesita la sesión que deja el AuthGuard.
-// Sin módulos de negocio todavía (modules/ solo tiene auth) — Sprint 1-2.
+// Módulos de negocio (Doc 11, Sprint 1-2): clientes. Faltan servicios y encargos.
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -35,6 +36,7 @@ import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-ne
     ThrottlerModule.forRoot([LIMITE_GENERAL]),
     PrismaModule,
     AuthModule,
+    ClientesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },
