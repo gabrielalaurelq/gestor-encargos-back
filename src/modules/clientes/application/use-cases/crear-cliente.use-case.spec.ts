@@ -1,9 +1,5 @@
-import { ConflictException } from '@nestjs/common';
 import { Cliente } from '../../domain/cliente';
-import {
-  ClienteDuplicadoError,
-  ClienteRepository,
-} from '../../domain/repositories/cliente.repository';
+import { ClienteRepository } from '../../domain/repositories/cliente.repository';
 import { CrearClienteUseCase } from './crear-cliente.use-case';
 
 const ID = '11111111-2222-3333-4444-555555555555';
@@ -18,6 +14,10 @@ function clientePersistido(nombre: string): Cliente {
   });
 }
 
+// La mecánica de la idempotencia (reintentos, carrera, 409) se prueba una sola
+// vez en `shared/application/crear-idempotente.spec.ts`. Acá solo lo propio
+// del módulo: que el id del dispositivo se respete, que un reintento no pise
+// lo ya guardado y que el dominio se valide antes de tocar la base.
 describe('CrearClienteUseCase', () => {
   let repositorio: jest.Mocked<ClienteRepository>;
   let useCase: CrearClienteUseCase;
@@ -32,7 +32,7 @@ describe('CrearClienteUseCase', () => {
     useCase = new CrearClienteUseCase(repositorio);
   });
 
-  it('sin id: no consulta antes, crea y marca creado=true (201)', async () => {
+  it('sin id: crea y marca creado=true (201)', async () => {
     repositorio.crear.mockImplementation(async (cliente) => cliente);
 
     const resultado = await useCase.execute({ nombre: 'Ana' });
@@ -52,45 +52,15 @@ describe('CrearClienteUseCase', () => {
     expect(resultado.cliente.id).toBe(ID);
   });
 
-  it('con id ya existente: devuelve el existente sin escribir (200, reintento del Outbox)', async () => {
+  it('con id ya existente: devuelve el existente sin pisar sus datos', async () => {
     repositorio.buscarPorId.mockResolvedValue(clientePersistido('Ana'));
 
     const resultado = await useCase.execute({ id: ID, nombre: 'Nombre distinto' });
 
     expect(repositorio.crear).not.toHaveBeenCalled();
     expect(resultado.creado).toBe(false);
-    // No se pisa lo que ya estaba: un reintento no es una edición.
+    // Un reintento no es una edición.
     expect(resultado.cliente.nombre).toBe('Ana');
-  });
-
-  it('carrera entre dos reintentos: el que pierde relee y devuelve el existente', async () => {
-    repositorio.buscarPorId
-      .mockResolvedValueOnce(null) // comprobación previa: todavía no existe
-      .mockResolvedValueOnce(clientePersistido('Ana')); // relectura tras el choque
-    repositorio.crear.mockRejectedValue(new ClienteDuplicadoError(ID));
-
-    const resultado = await useCase.execute({ id: ID, nombre: 'Ana' });
-
-    expect(resultado.creado).toBe(false);
-    expect(resultado.cliente.nombre).toBe('Ana');
-  });
-
-  it('id ya usado por otro negocio: 409 neutro, no 500 ni filtración', async () => {
-    // Choca con la llave primaria (global) pero la fila no es visible para
-    // esta sesión: pertenece a otro negocio.
-    repositorio.buscarPorId.mockResolvedValue(null);
-    repositorio.crear.mockRejectedValue(new ClienteDuplicadoError(ID));
-
-    const promesa = useCase.execute({ id: ID, nombre: 'Ana' });
-
-    await expect(promesa).rejects.toThrow(ConflictException);
-    await expect(promesa).rejects.toThrow('El id enviado ya está en uso.');
-  });
-
-  it('propaga cualquier otro error del repositorio', async () => {
-    repositorio.crear.mockRejectedValue(new Error('conexión caída'));
-
-    await expect(useCase.execute({ nombre: 'Ana' })).rejects.toThrow('conexión caída');
   });
 
   it('valida el dominio antes de tocar la base', async () => {

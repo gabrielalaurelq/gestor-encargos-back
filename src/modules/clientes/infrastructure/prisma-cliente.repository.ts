@@ -1,13 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PaginaResultado } from '../../../shared/presentation/paginacion';
+import { RecursoDuplicadoError } from '../../../shared/domain/recurso-duplicado.error';
 import { PrismaNegocio } from '../../../shared/infrastructure/prisma/prisma-negocio';
+import { PaginaResultado } from '../../../shared/presentation/paginacion';
 import { Cliente } from '../domain/cliente';
-import {
-  ClienteDuplicadoError,
-  ClienteRepository,
-  FiltroClientes,
-} from '../domain/repositories/cliente.repository';
+import { ClienteRepository, FiltroClientes } from '../domain/repositories/cliente.repository';
 
 /** Fila de `clientes` tal como la devuelve Prisma. */
 type FilaCliente = {
@@ -91,7 +88,7 @@ export class PrismaClienteRepository extends ClienteRepository {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === VIOLACION_UNICIDAD
       ) {
-        throw new ClienteDuplicadoError(cliente.id);
+        throw new RecursoDuplicadoError('cliente', cliente.id);
       }
       throw error;
     }

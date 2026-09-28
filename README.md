@@ -87,9 +87,27 @@ Endpoints: `GET /clientes?q=&pagina=&por_pagina=`, `POST /clientes`, `GET /clien
 
 **Fuera de alcance hasta Sprint 2** (dependen del módulo Encargos, que aún no existe): `GET /clientes/{id}/encargos` y el resumen de Historial dentro de `GET /clientes/{id}`.
 
+### Sprint 1 — Módulo `servicios` (`src/modules/servicios/`) + VO `Monto`
+
+Catálogo de servicios (PRD módulo 4, Doc 2 agregado raíz independiente). Endpoints: `GET /servicios?incluir_inactivos=`, `POST /servicios`, `PATCH /servicios/{id}`. **Sin `DELETE`**, a propósito: un Servicio nunca se elimina, solo se desactiva (Doc 2, invariante 14).
+
+- **`Monto`** (`src/shared/domain/monto.ts`) — segundo Value Object del Doc 2, y el más reutilizado de aquí en adelante (Servicios, Trabajos, Pagos, Encargos). Guarda **céntimos enteros**: un `number` decimal arrastra error binario (`0.1 + 0.2 ≠ 0.3`) y justo acá se suman precios para `precio_total` y `saldo_pendiente`; `Prisma.Decimal` daría exactitud pero metería un import de Prisma en `domain/`, que el Doc 8 prohíbe. Con `DECIMAL(10,2)` el máximo en céntimos (9 999 999 999) entra holgado en el entero exacto de JavaScript. No restringe el signo, como pide el Doc 2 — cada entidad aplica su regla.
+- **Idempotencia extraída a `shared/application/crear-idempotente.ts`**, con `RecursoDuplicadoError` en `shared/domain/`. Clientes se refactorizó para usarla. El motivo no es ahorrar líneas: el caso del `409` es una decisión de seguridad y el Doc 5 Bloque 2 tiene seis altas con la misma forma; seis copias serían seis oportunidades de que una se desviara.
+
+**Decisiones tomadas en este módulo:**
+
+| Decisión | Elección | Motivo |
+|---|---|---|
+| Dinero en JSON | Número con 2 decimales (`"precio": 20.5`), no string | El Doc 5 Bloque 3 ya usa números para dinero en su ejemplo de error. Con `DECIMAL(10,2)` el valor entra exacto en un double; el backend nunca opera con floats — la aritmética vive en `Monto`. |
+| Tercer decimal en el precio | `422 MONTO_INVALIDO`, no se redondea | Redondear dinero en silencio esconde un error del cliente. |
+| Precio `0` | Válido | PRD módulo 4: "sin precio mínimo forzado" (ej. retoque de garantía). Solo se rechaza el negativo, igual que el `CHECK` del Doc 4. |
+| Nombres duplicados en el catálogo | Permitidos | PRD módulo 4: "el MVP no bloquea duplicados; es responsabilidad del negociante mantener su catálogo ordenado". |
+| Editar el `nombre` | **No** se permite; el `PATCH` solo acepta `precio` y `activo` | El Doc 5 Bloque 2 define el endpoint como "editar precio o `activo`", y ni el PRD (flujo 3b) ni el Doc 2 contemplan renombrar. Para corregir un nombre: desactivar y crear otro, que es el camino que el modelo ya prevé al no permitir borrado. **Revisable si la UI lo pide.** |
+| No retroactividad del precio (Doc 2, invariante 12) | No se implementa nada | El Trabajo copia nombre y precio al crearse; la no retroactividad se obtiene por construcción. La responsabilidad recae en Encargos (Sprint 3-4): debe **copiar**, no referenciar. |
+
 ## Pendiente
 
-- Sprint 1-2: módulos `servicios` y `encargos` en `src/modules/`.
+- Sprint 2: módulo `encargos` en `src/modules/`.
 - Doc 5 Bloque 2: 4 endpoints sin implementar — `GET/PATCH /negocio` y `POST/DELETE /dispositivos/fcm-token`.
 - Enmendar el Doc 5 Bloque 2 con el `id` opcional del `POST` y su respuesta `200` idempotente.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).
