@@ -163,12 +163,40 @@ En su lugar, `EncargoRepository.mutarAgregado(encargoId, fn)` abre una transacci
 
 **Fuera de alcance** (Doc 11, Sprint 7): Materiales y Fotografías. Fotos arrastra además las presigned URLs de R2 (Doc 8, Bloque 3), que es un trabajo aparte. Por eso `GET /encargos/{id}` no declara todavía la clave `fotos`: no se promete una clave que hoy siempre estaría vacía.
 
+### `GET /sync` — el pull del motor offline-first (`src/modules/sync/`)
+
+El Doc 5 lo llama *"el endpoint más importante del documento"*. Devuelve todo lo cambiado en el negocio desde `since`, agrupado en las 9 colecciones que fija el Bloque 1. Es una **lectura cross-agregado** —recorre las 9 tablas sin pasar por las raíces—, que el Doc 2 permite explícitamente; por eso el módulo no tiene capa `domain/` con entidades: no sostiene invariantes, solo proyecta filas.
+
+**Hallazgo: el diseño del Doc 5 perdía datos en silencio.** Una sonda contra la base real lo demostró:
+
+```
+antes de escribir : 22:24:04.000
+actualizado_en    : 22:24:04.003   ← reloj de la ESCRITURA
+despues del commit: 22:24:06.013   ← cuando se hizo visible
+```
+
+`actualizado_en` lo escribe Prisma con el reloj de la aplicación **en el momento de la escritura**, no en el del commit, así que **el orden de los timestamps no coincide con el orden de visibilidad**. Una sincronización a las `22:24:05` no ve esa fila, devuelve `servidor_timestamp: 22:24:05`, y la próxima pide `>= 22:24:05`: la fila tiene `22:24:04.003` y no vuelve a aparecer nunca. El Doc 5 razonó sobre una carrera parecida —de ahí su instrucción de guardar `servidor_timestamp` y no el máximo `actualizado_en`— pero esa precaución no cubre este caso: el problema no es qué marca guarda el cliente.
+
+**La solución: margen de solape de 10 s.** `servidor_timestamp` = reloj de inicio de la petición **menos 10 s**, y `since` comparado de forma inclusiva (`>=`). El número no es arbitrario: Prisma aborta cualquier transacción interactiva que pase de 5 s, así que la distancia entre una escritura y su commit está acotada ahí; 10 s es el doble, y absorbe además el desfase de reloj si algún día hay más de una instancia del backend. El coste es que cada sincronización reenvía las filas de esos 10 s — y con Last-Write-Wins aplicar dos veces el mismo cambio da el mismo resultado. **El principio: ante cualquier ambigüedad, reenviar; perder es irreversible.**
+
+| Decisión | Elección | Motivo |
+|---|---|---|
+| Aislamiento de la lectura | `RepeatableRead` para las 9 consultas | Con el `READ COMMITTED` por defecto cada sentencia ve una foto distinta, y el cliente podría recibir un trabajo cuyo encargo no venía en la consulta anterior: un hijo sin padre. Se añadió un parámetro opcional a `PrismaNegocio.transaccion()`. |
+| Reloj de referencia | El de la aplicación, no `now()` de Postgres | Es el mismo reloj que escribe `actualizado_en`; mezclarlo con el de la base metería un desfase entre relojes distintos. |
+| Las 9 colecciones | Siempre presentes, aunque vengan vacías | `materiales` y `fotos` llegan vacías hasta Sprint 7. El Doc 3 describe un "motor de sincronización genérico" que itera lo que recibe: incluirlas desde ya significa que Sprint 7 no toca el cliente. (Al contrario que en `GET /encargos/{id}`, donde añadir una clave después es aditivo e inofensivo.) |
+| Proyecciones | Distintas de las respuestas REST: cada fila lleva sus llaves foráneas | En REST el `encargo_id` va en la URL; acá el cliente recibe listas planas y necesita las FK para reconstruir las relaciones en su base local. |
+| Tombstones | Viajan como cualquier otro cambio, con `eliminado_en` | Es la señal para borrar en local (Doc 4, Bloque 3). Las consultas de sync **no** filtran `eliminado_en`, al contrario que las del agregado. |
+| Truncamiento | Tope de 500 filas por colección; `servidor_timestamp` no avanza más allá del corte | El `since` inclusivo evita saltarse filas con el timestamp exacto del corte. **Límite conocido:** si 500 filas compartieran el mismo `actualizado_en`, el corte no avanzaría; no puede pasar hoy porque no hay escrituras masivas, y si se añade alguna habrá que pasar a un cursor `(actualizado_en, id)`. |
+
+**Lo que sigue abierto:** si el reloj del servidor salta hacia atrás más que el margen (un ajuste de NTP grande), ningún esquema basado en timestamps aguanta. La solución definitiva sería ordenar por commit real (`xmin` o una secuencia monótona), lo que cambia el contrato del Doc 5 y pide migrar 9 tablas. Anotado, no hecho.
+
 ## Pendiente
 
+- **La deuda de las fechas sigue abierta y ahora toca dinero.** `pago.fecha`, `fecha_listo` y `fecha_entrega_real` las pone el reloj del servidor. Con la cola Outbox, un pago registrado sin conexión el lunes y sincronizado el miércoles quedará fechado el miércoles — y la Caja diaria (PRD módulo 12) agrupa por fecha. Hay que decidir si el cuerpo acepta la fecha del dispositivo (choca con el invariante 8) o si se asume el desfase.
 - Sprint 5: Dashboard, Dictado por voz (STT), WhatsApp nivel gratuito.
 - Sprint 7: Materiales y Fotografías (requiere R2 + presigned URLs).
 - **Enmendar el Doc 8** con el desvío de `mutarAgregado` respecto del `save()` monolítico del Bloque 1.
-- Enmendar el Doc 5 con los códigos nuevos de este bloque: `OBJETO_DESCRIPCION_VACIA`, `TRABAJO_DESCRIPCION_VACIA`, `TRABAJO_PRECIO_INVALIDO`, `TRABAJO_ORIGEN_AMBIGUO`, `SERVICIO_NO_DISPONIBLE`, `OBJETO_NO_EN_ENCARGO`, `ORIGEN_PAGO_INVALIDO`, `NOTA_TEXTO_VACIO`.
+- Enmendar el Doc 5 con: el margen de solape y el `since` inclusivo de `/sync`, y los códigos nuevos `OBJETO_DESCRIPCION_VACIA`, `TRABAJO_DESCRIPCION_VACIA`, `TRABAJO_PRECIO_INVALIDO`, `TRABAJO_ORIGEN_AMBIGUO`, `SERVICIO_NO_DISPONIBLE`, `OBJETO_NO_EN_ENCARGO`, `ORIGEN_PAGO_INVALIDO`, `NOTA_TEXTO_VACIO`.
 - Doc 5 Bloque 2: 4 endpoints sin implementar — `GET/PATCH /negocio` y `POST/DELETE /dispositivos/fcm-token`.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).
 

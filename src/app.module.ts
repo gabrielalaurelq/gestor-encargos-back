@@ -11,6 +11,7 @@ import { AuthGuard } from './modules/auth/presentation/guards/auth.guard';
 import { ClientesModule } from './modules/clientes/clientes.module';
 import { EncargosModule } from './modules/encargos/encargos.module';
 import { ServiciosModule } from './modules/servicios/servicios.module';
+import { SyncModule } from './modules/sync/sync.module';
 import { PrismaModule } from './shared/infrastructure/prisma/prisma.module';
 import { AllExceptionsFilter } from './shared/presentation/filters/all-exceptions.filter';
 import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-negocio.guard';
@@ -21,7 +22,7 @@ import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-ne
 // APP_GUARD global. Doc 5, Bloque 4: rate limiting con ThrottlerNegocioGuard.
 // Los dos guards se registran acá, en este orden, porque el throttler cuenta
 // por negocio y necesita la sesión que deja el AuthGuard.
-// Módulos de negocio (Doc 11, Sprint 1-2): clientes, servicios y encargos.
+// Módulos de negocio: clientes, servicios, encargos y el pull de sincronización.
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -41,6 +42,7 @@ import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-ne
     ClientesModule,
     ServiciosModule,
     EncargosModule,
+    SyncModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },

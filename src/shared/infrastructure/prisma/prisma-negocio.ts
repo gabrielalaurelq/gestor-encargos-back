@@ -1,5 +1,6 @@
 import { Inject, Injectable, Scope } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
+import { Prisma } from '@prisma/client';
 import { RequestConSesion } from '../../presentation/auth/sesion-autenticada';
 import { extensionFiltroNegocio } from './filtro-negocio';
 import { PrismaService } from './prisma.service';
@@ -9,6 +10,18 @@ function crearClienteFiltrado(prisma: PrismaService, negocioId: string) {
 }
 
 type ClienteFiltrado = ReturnType<typeof crearClienteFiltrado>;
+
+/**
+ * `READ COMMITTED` (el de Postgres por defecto) da una foto nueva en **cada
+ * sentencia**, lo que basta para una escritura de agregado pero no para una
+ * lectura de varias tablas que debe ser coherente entre sí: `GET /sync` leería
+ * un trabajo cuyo encargo todavía no estaba en la consulta anterior, y el
+ * cliente recibiría un hijo sin su padre. Con `RepeatableRead` las consultas
+ * de la transacción comparten una sola foto.
+ */
+export interface OpcionesTransaccion {
+  aislamiento?: Prisma.TransactionIsolationLevel;
+}
 
 /** Cliente Prisma dentro de una transacción de negocio: filtrado + RLS activo. */
 export type TransaccionNegocio = Omit<
@@ -32,11 +45,17 @@ export class ClienteNegocio {
     this.cliente = crearClienteFiltrado(prisma, negocioId);
   }
 
-  transaccion<T>(fn: (tx: TransaccionNegocio) => Promise<T>): Promise<T> {
-    return this.cliente.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT set_config('app.negocio_actual', ${this.negocioId}, true)`;
-      return fn(tx as unknown as TransaccionNegocio);
-    });
+  transaccion<T>(
+    fn: (tx: TransaccionNegocio) => Promise<T>,
+    opciones?: OpcionesTransaccion,
+  ): Promise<T> {
+    return this.cliente.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT set_config('app.negocio_actual', ${this.negocioId}, true)`;
+        return fn(tx as unknown as TransaccionNegocio);
+      },
+      opciones?.aislamiento ? { isolationLevel: opciones.aislamiento } : undefined,
+    );
   }
 }
 
@@ -60,8 +79,11 @@ export class PrismaNegocio {
     return this.obtener().negocioId;
   }
 
-  transaccion<T>(fn: (tx: TransaccionNegocio) => Promise<T>): Promise<T> {
-    return this.obtener().transaccion(fn);
+  transaccion<T>(
+    fn: (tx: TransaccionNegocio) => Promise<T>,
+    opciones?: OpcionesTransaccion,
+  ): Promise<T> {
+    return this.obtener().transaccion(fn, opciones);
   }
 
   private obtener(): ClienteNegocio {
