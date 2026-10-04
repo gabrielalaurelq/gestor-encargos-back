@@ -105,11 +105,42 @@ Catálogo de servicios (PRD módulo 4, Doc 2 agregado raíz independiente). Endp
 | Editar el `nombre` | **No** se permite; el `PATCH` solo acepta `precio` y `activo` | El Doc 5 Bloque 2 define el endpoint como "editar precio o `activo`", y ni el PRD (flujo 3b) ni el Doc 2 contemplan renombrar. Para corregir un nombre: desactivar y crear otro, que es el camino que el modelo ya prevé al no permitir borrado. **Revisable si la UI lo pide.** |
 | No retroactividad del precio (Doc 2, invariante 12) | No se implementa nada | El Trabajo copia nombre y precio al crearse; la no retroactividad se obtiene por construcción. La responsabilidad recae en Encargos (Sprint 3-4): debe **copiar**, no referenciar. |
 
+### Sprint 2 — Módulo `encargos` (`src/modules/encargos/`), núcleo del agregado raíz
+
+Endpoints: `GET /encargos?estado=&fecha_desde=&fecha_hasta=&cliente_id=`, `POST /encargos`, `GET /encargos/{id}`, `PATCH /encargos/{id}`, `PATCH /encargos/{id}/estado` y `POST /encargos/reservar-bloque-numeros`.
+
+- `domain/` — VO **`RangoFechasEntrega`** (agrupa las 4 fechas y encapsula los invariantes 6-8: la prometida no tiene ningún método que la toque, y `listo`/`entregaReal` solo se asignan vía `marcarListo`/`marcarEntregado`, nunca con setters); **`EstadoEncargo`** con su tabla de transiciones; entidad **`Encargo`** con `recalcular()` como único sitio que deriva `precio_total`/`descuento`/`saldo_pendiente` (invariantes 1-3).
+- `shared/domain/fecha.ts` — las 4 fechas son `DATE` sin hora, así que se normalizan a medianoche UTC y "hoy" se calcula en `America/Lima`. Sin eso, un servidor en UTC fecharía al día siguiente todo lo marcado entre las 19:00 y la medianoche de Lima.
+- La **máquina de estados** sale de PRD módulo 6 (líneas 308-329), no solo del Doc 2: saltarse estados está permitido, y al entregar directamente desde `INGRESADO` ambas fechas quedan con el mismo día.
+- **Numeración Hi/Lo** (Doc 3, ADR-008): `POST /encargos/reservar-bloque-numeros` sobre `negocios.siguiente_bloque_numeros`, con un único `UPDATE ... increment ... RETURNING` para que dos dispositivos simultáneos reciban rangos disjuntos. Bloques de 100.
+
+**Decisiones tomadas en este módulo:**
+
+| Decisión | Elección | Motivo |
+|---|---|---|
+| **`POST /encargos/reservar-bloque-numeros` no estaba en el Doc 5** | Implementado | El Doc 3 lo pide explícitamente al cerrar el ADR-008 y el Doc 4 ya reserva la columna, pero el Doc 5 Bloque 2 nunca lo incorporó. Sin él, `encargos.numero` sería siempre `null` y la app no podría mostrar "Encargo #47". **Hay que enmendar el Doc 5.** |
+| Tamaño del bloque | 100 | El Doc 3 lo usa como ejemplo ("del 101 al 200") pero no lo fija. Con ~100 encargos activos por negocio, un bloque dura meses sin conexión; el coste de equivocarse es cosmético (un hueco en la numeración). |
+| `siguiente_bloque_numeros` | Guarda el **próximo número libre**, no el índice del bloque | Así el tamaño del bloque es un parámetro de runtime: cambiarlo mañana no solapa ni deja huecos en lo ya entregado. El nombre de la columna queda algo impreciso. |
+| `ENTREGADO` | **Terminal**: no se pausa, ni se cancela, ni se deshace | El PRD acota pausar/cancelar a "antes de ENTREGADO" y "cualquier encargo no entregado"; ningún documento define cómo deshacer una entrega. Lectura literal y la más restrictiva. **Revisable si la UI lo necesita.** |
+| Reactivar un `CANCELADO` | El estado destino lo elige quien llama | El PRD dice "a su estado anterior", pero no hay columna para guardarlo — y no hace falta: `PATCH /estado` ya recibe el destino. |
+| Advertencias no bloqueantes | `PATCH /estado` devuelve `200` con un arreglo `advertencias` | El invariante 10 permite entregar con saldo pendiente y solo advertir. El formato de error del Doc 5 es exclusivo de 4xx/5xx, así que hacía falta un canal para avisos en un `200`. Pone la regla en el backend en vez de que el Flutter la reimplemente. **Añadido al contrato del Doc 5.** |
+| Descuento por encima de la suma | `422` si lo fija el usuario; **ajuste automático** si la suma baja sola | Son las dos mitades del invariante 2. Bloquear el segundo caso dejaría el encargo imposible de arreglar: el usuario no pidió ese cambio, lo provocó borrar un trabajo. |
+| `cliente_id` inexistente o de otro negocio | `422 CLIENTE_NO_ENCONTRADO` | Sin comprobarlo, la FK daría un error de Prisma que acabaría en `500`. El payload está bien formado pero referencia algo inválido → 422, no 404 (el 404 es del encargo, no de lo que referencia). |
+| Fecha de `fecha_listo` / `fecha_entrega_real` | Reloj del servidor en zona del negocio | **Deuda conocida y anotada en el código.** El Doc 2 habla de "la fecha del dispositivo". Coincide mientras haya conexión, pero con la cola Outbox una transición hecha el lunes sin red y sincronizada el miércoles quedará fechada el miércoles. Al construir el motor de sincronización hay que decidir si el cuerpo acepta la fecha del dispositivo — lo que choca con el invariante 8 — o si se asume el desfase. |
+
+**Hallazgo de implementación:** con este schema, Prisma 5 informa las violaciones de unicidad dentro de una transacción interactiva con `meta.target: null` y el mensaje *"Unique constraint failed on the (not available)"*, así que **el error no dice qué restricción falló**. Como `encargos` tiene dos (la llave primaria y `UNIQUE (negocio_id, numero)`), hay que preguntarle a la base cuál fue: si existe otro encargo con ese número, es la del número (`422`); si no, es la primaria (que pasa por la lógica de idempotencia). La consulta extra solo ocurre tras un conflicto, nunca en el camino normal.
+
+**Fuera de alcance hasta Sprint 3-4** (Doc 11): Objetos, Trabajos, Materiales, Pagos, Notas y Fotos, y con ellos el detalle anidado de `GET /encargos/{id}`. `recalcular()` y `sumas()` ya están escritos y probados para ese momento: hoy las sumas son 0 porque no hay forma de crear hijos, pero las consultas ya son las definitivas y excluyen los tombstones.
+
 ## Pendiente
 
-- Sprint 2: módulo `encargos` en `src/modules/`.
+- Sprint 3-4: Objetos, Trabajos (con y sin catálogo), Materiales, Pagos, Notas y Fotos — todos bajo `/encargos/{id}/...`.
 - Doc 5 Bloque 2: 4 endpoints sin implementar — `GET/PATCH /negocio` y `POST/DELETE /dispositivos/fcm-token`.
-- Enmendar el Doc 5 Bloque 2 con el `id` opcional del `POST` y su respuesta `200` idempotente.
+- **Enmiendas pendientes al Doc 5**, por orden de urgencia (la app Flutter se escribirá contra el documento, no contra el código):
+  1. `POST /encargos/reservar-bloque-numeros` — el endpoint existe en el código y lo pide el Doc 3, pero no está en el Doc 5.
+  2. El `id` opcional en los `POST` y su respuesta `200` idempotente.
+  3. El arreglo `advertencias` en la respuesta de `PATCH /encargos/{id}/estado`.
+  4. Los códigos `422` nuevos: `TELEFONO_INVALIDO`, `SERVICIO_PRECIO_INVALIDO`, `MONTO_INVALIDO`, `FECHA_INVALIDA`, `ENCARGO_DESCRIPCION_VACIA`, `ENCARGO_NUMERO_EN_USO`, `TRANSICION_INVALIDA`, `CLIENTE_NO_ENCONTRADO`.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).
 
 ## Códigos de error no de negocio
