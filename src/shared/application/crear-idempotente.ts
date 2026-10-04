@@ -1,6 +1,23 @@
 import { ConflictException } from '@nestjs/common';
 import { RecursoDuplicadoError } from '../domain/recurso-duplicado.error';
 
+/**
+ * El `id` chocó con la llave primaria pero la fila no es visible para esta
+ * sesión: pertenece a otro negocio. La llave es global, los negocios no.
+ *
+ * El mensaje no dice de quién es — decirlo confirmaría la existencia del
+ * recurso en otro tenant, justo lo que el Doc 5 Bloque 3 evita al preferir 404
+ * sobre 403. No es enumerable: habría que adivinar un UUID v4 entero.
+ *
+ * Se exporta como función para que los dos flujos de alta idempotente que
+ * existen —el general de acá y el de los hijos del Encargo, que necesita su
+ * propio reintento porque un P2002 aborta la transacción de Postgres— compartan
+ * exactamente esta decisión y este texto.
+ */
+export function conflictoIdAjeno(): ConflictException {
+  return new ConflictException('El id enviado ya está en uso.');
+}
+
 export interface ResultadoCreacion<T> {
   recurso: T;
   /** `false` cuando el id ya existía: la respuesta es 200, no 201. */
@@ -57,11 +74,6 @@ export async function crearIdempotente<T>(
       return { recurso: existente, creado: false };
     }
 
-    // Chocó con la llave primaria pero la fila no es visible para esta sesión:
-    // el id pertenece a otro negocio. La llave es global, los negocios no. El
-    // mensaje no dice de quién es — decirlo confirmaría la existencia del
-    // recurso en otro tenant, justo lo que el Doc 5 Bloque 3 evita al preferir
-    // 404 sobre 403. No es enumerable: habría que adivinar un UUID v4 entero.
-    throw new ConflictException('El id enviado ya está en uso.');
+    throw conflictoIdAjeno();
   }
 }

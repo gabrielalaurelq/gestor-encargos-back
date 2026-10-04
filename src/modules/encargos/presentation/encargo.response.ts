@@ -2,6 +2,17 @@ import { ApiProperty } from '@nestjs/swagger';
 import { isoDesdeFecha } from '../../../shared/domain/fecha';
 import { AdvertenciaEncargo, Encargo } from '../domain/encargo';
 import { EstadoEncargo } from '../domain/estado-encargo';
+import { DetalleEncargo } from '../domain/repositories/encargo.repository';
+import {
+  NotaResponse,
+  ObjetoResponse,
+  PagoResponse,
+  TrabajoResponse,
+  aNotaResponse,
+  aObjetoResponse,
+  aPagoResponse,
+  aTrabajoResponse,
+} from './hijos.response';
 
 export class EncargoResponse {
   @ApiProperty({ format: 'uuid' })
@@ -108,4 +119,33 @@ export class BloqueNumerosResponse {
 
   @ApiProperty({ example: 100 })
   hasta!: number;
+}
+
+/**
+ * `GET /encargos/{id}`: el encargo con sus hijos anidados (Doc 5, Bloque 2).
+ * `fotos` llega en Sprint 7; no se declara vacío mientras no exista el módulo,
+ * para no prometer una clave que hoy nunca tendría contenido.
+ */
+export class EncargoDetalleResponse extends EncargoResponse {
+  @ApiProperty({ isArray: true, type: ObjetoResponse })
+  objetos!: ObjetoResponse[];
+
+  @ApiProperty({ isArray: true, type: TrabajoResponse })
+  trabajos!: TrabajoResponse[];
+
+  @ApiProperty({ isArray: true, type: PagoResponse })
+  pagos!: PagoResponse[];
+
+  @ApiProperty({ isArray: true, type: NotaResponse, description: 'Más recientes primero.' })
+  notas!: NotaResponse[];
+}
+
+export function aEncargoDetalleResponse(detalle: DetalleEncargo): EncargoDetalleResponse {
+  return {
+    ...aEncargoResponse(detalle.encargo),
+    objetos: detalle.objetos.map(aObjetoResponse),
+    trabajos: detalle.trabajos.map(aTrabajoResponse),
+    pagos: detalle.pagos.map(aPagoResponse),
+    notas: detalle.notas.map(aNotaResponse),
+  };
 }

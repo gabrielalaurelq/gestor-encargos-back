@@ -1,13 +1,34 @@
 import { Injectable } from '@nestjs/common';
 import { EncargoEstado, Prisma } from '@prisma/client';
 import { RecursoDuplicadoError } from '../../../shared/domain/recurso-duplicado.error';
-import { Monto } from '../../../shared/domain/monto';
-import { PrismaNegocio } from '../../../shared/infrastructure/prisma/prisma-negocio';
+import {
+  PrismaNegocio,
+  TransaccionNegocio,
+} from '../../../shared/infrastructure/prisma/prisma-negocio';
 import { PaginaResultado } from '../../../shared/presentation/paginacion';
 import { Encargo, SumasEncargo } from '../domain/encargo';
 import { EncargoNumeroEnUsoError } from '../domain/errores';
 import { EstadoEncargo } from '../domain/estado-encargo';
-import { EncargoRepository, FiltroEncargos } from '../domain/repositories/encargo.repository';
+import {
+  DetalleEncargo,
+  EncargoRepository,
+  EscriturasHijos,
+  FiltroEncargos,
+  ResultadoMutacion,
+} from '../domain/repositories/encargo.repository';
+import {
+  CAMPOS_NOTA,
+  CAMPOS_OBJETO,
+  CAMPOS_PAGO,
+  CAMPOS_TRABAJO,
+  VIVOS,
+  aNotaDominio,
+  aObjetoDominio,
+  aPagoDominio,
+  aTrabajoDominio,
+  montoDesdeSuma,
+} from './hijos.mapper';
+import { PrismaEscriturasHijos } from './prisma-escrituras-hijos';
 
 const CAMPOS = {
   id: true,
@@ -60,6 +81,60 @@ export class PrismaEncargoRepository extends EncargoRepository {
       tx.encargo.findUnique({ where: { id }, select: CAMPOS }),
     );
     return fila ? PrismaEncargoRepository.aDominio(fila) : null;
+  }
+
+  /**
+   * Detalle con los hijos vivos, para `GET /encargos/{id}`. Las cinco
+   * consultas van en una transacción para que la foto sea coherente: sin ella,
+   * un pago registrado a mitad de la lectura podría aparecer en la lista pero
+   * no en el `saldo_pendiente` que ya se había leído.
+   */
+  async buscarDetalle(id: string): Promise<DetalleEncargo | null> {
+    const detalle = await this.prisma.transaccion(async (tx) => {
+      const fila = await tx.encargo.findUnique({ where: { id }, select: CAMPOS });
+      if (!fila) {
+        return null;
+      }
+
+      const [objetos, trabajos, pagos, notas] = await Promise.all([
+        tx.objetoRecibido.findMany({
+          where: { encargoId: id, ...VIVOS },
+          select: CAMPOS_OBJETO,
+          orderBy: { creadoEn: 'asc' },
+        }),
+        tx.trabajo.findMany({
+          where: { encargoId: id, ...VIVOS },
+          select: CAMPOS_TRABAJO,
+          orderBy: { creadoEn: 'asc' },
+        }),
+        tx.pago.findMany({
+          where: { encargoId: id, ...VIVOS },
+          select: CAMPOS_PAGO,
+          orderBy: { creadoEn: 'asc' },
+        }),
+        // Las notas son un registro cronológico (PRD, módulo 17): lo más
+        // reciente primero es como se lee un historial.
+        tx.nota.findMany({
+          where: { encargoId: id },
+          select: CAMPOS_NOTA,
+          orderBy: { creadoEn: 'desc' },
+        }),
+      ]);
+
+      return { fila, objetos, trabajos, pagos, notas };
+    });
+
+    if (!detalle) {
+      return null;
+    }
+
+    return {
+      encargo: PrismaEncargoRepository.aDominio(detalle.fila),
+      objetos: detalle.objetos.map(aObjetoDominio),
+      trabajos: detalle.trabajos.map(aTrabajoDominio),
+      pagos: detalle.pagos.map(aPagoDominio),
+      notas: detalle.notas.map(aNotaDominio),
+    };
   }
 
   async listar(filtro: FiltroEncargos): Promise<PaginaResultado<Encargo>> {
@@ -121,28 +196,60 @@ export class PrismaEncargoRepository extends EncargoRepository {
   }
 
   /**
-   * Suma de Trabajos y Pagos vivos. Hoy devuelve 0 y 0 porque no hay forma de
-   * crearlos todavía, pero la consulta ya es la definitiva: excluye los
-   * tombstones (`eliminado_en`), como exige el Doc 4 Bloque 3 — un trabajo
-   * borrado no puede seguir sumando al precio total.
+   * Suma de Trabajos y Pagos vivos. Excluye los tombstones (`eliminado_en`),
+   * como exige el Doc 4 Bloque 3 — un trabajo borrado no puede seguir sumando
+   * al precio total.
    */
-  async sumas(encargoId: string): Promise<SumasEncargo> {
-    const [trabajos, pagos] = await this.prisma.transaccion((tx) =>
-      Promise.all([
-        tx.trabajo.aggregate({
-          where: { encargoId, eliminadoEn: null },
-          _sum: { precio: true },
-        }),
-        tx.pago.aggregate({
-          where: { encargoId, eliminadoEn: null },
-          _sum: { monto: true },
-        }),
-      ]),
-    );
+  sumas(encargoId: string): Promise<SumasEncargo> {
+    return this.prisma.transaccion((tx) => PrismaEncargoRepository.sumasEn(tx, encargoId));
+  }
+
+  async mutarAgregado<T>(
+    encargoId: string,
+    fn: (hijos: EscriturasHijos, encargo: Encargo) => Promise<T>,
+  ): Promise<ResultadoMutacion<T> | null> {
+    const negocioId = this.prisma.negocioId;
+
+    return this.prisma.transaccion(async (tx) => {
+      const fila = await tx.encargo.findUnique({ where: { id: encargoId }, select: CAMPOS });
+      if (!fila) {
+        return null;
+      }
+
+      const encargo = PrismaEncargoRepository.aDominio(fila);
+      const hijos = new PrismaEscriturasHijos(tx, encargoId, negocioId);
+
+      const resultado = await fn(hijos, encargo);
+
+      // Siempre, después de cualquier escritura de un hijo: se releen las
+      // sumas (ya con el cambio aplicado, porque estamos dentro de la misma
+      // transacción) y se persisten los derivados de la raíz. Que esté acá y
+      // no en el caso de uso es lo que hace imposible olvidarlo.
+      encargo.recalcular(await PrismaEncargoRepository.sumasEn(tx, encargoId));
+
+      const actualizado = await tx.encargo.update({
+        where: { id: encargoId },
+        data: {
+          precioTotal: encargo.precioTotal.texto,
+          descuento: encargo.descuento.texto,
+          saldoPendiente: encargo.saldoPendiente.texto,
+        },
+        select: CAMPOS,
+      });
+
+      return { resultado, encargo: PrismaEncargoRepository.aDominio(actualizado) };
+    });
+  }
+
+  private static async sumasEn(tx: TransaccionNegocio, encargoId: string): Promise<SumasEncargo> {
+    const [trabajos, pagos] = await Promise.all([
+      tx.trabajo.aggregate({ where: { encargoId, ...VIVOS }, _sum: { precio: true } }),
+      tx.pago.aggregate({ where: { encargoId, ...VIVOS }, _sum: { monto: true } }),
+    ]);
 
     return {
-      trabajos: PrismaEncargoRepository.aMonto(trabajos._sum.precio),
-      pagos: PrismaEncargoRepository.aMonto(pagos._sum.monto),
+      trabajos: montoDesdeSuma(trabajos._sum.precio),
+      pagos: montoDesdeSuma(pagos._sum.monto),
     };
   }
 
@@ -191,10 +298,6 @@ export class PrismaEncargoRepository extends EncargoRepository {
       descuento: fila.descuento.toString(),
       saldoPendiente: fila.saldoPendiente.toString(),
     });
-  }
-
-  private static aMonto(valor: Prisma.Decimal | null): Monto {
-    return valor === null ? Monto.CERO : Monto.desde(valor.toString());
   }
 
   /**

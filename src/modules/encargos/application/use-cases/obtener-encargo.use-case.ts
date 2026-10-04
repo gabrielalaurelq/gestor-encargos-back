@@ -1,24 +1,24 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Encargo } from '../../domain/encargo';
-import { EncargoRepository } from '../../domain/repositories/encargo.repository';
+import { DetalleEncargo, EncargoRepository } from '../../domain/repositories/encargo.repository';
 
 /**
- * `GET /encargos/{id}` (Doc 5, Bloque 2).
+ * `GET /encargos/{id}` (Doc 5, Bloque 2): detalle completo con los hijos
+ * anidados. Fotos llega en Sprint 7 (Doc 11), junto con Materiales.
  *
- * El Doc 5 promete "detalle completo (con objetos, trabajos, pagos, notas,
- * fotos anidados)". Esos hijos llegan en Sprint 3-4; hasta entonces la
- * respuesta trae solo el encargo. Se prefiere omitir las claves antes que
- * devolver arreglos vacíos que hoy serían siempre vacíos por construcción.
+ * Un id de otro negocio también termina en 404, sin comprobarlo: el filtro de
+ * `PrismaNegocio` y RLS hacen que la fila no exista para esta sesión. Es lo que
+ * pide el Doc 5 Bloque 3 — nunca 403, porque "prohibido" confirmaría que el
+ * recurso existe en otro tenant.
  */
 @Injectable()
 export class ObtenerEncargoUseCase {
   constructor(private readonly repositorio: EncargoRepository) {}
 
-  async execute(id: string): Promise<Encargo> {
-    const encargo = await this.repositorio.buscarPorId(id);
-    if (!encargo) {
+  async execute(id: string): Promise<DetalleEncargo> {
+    const detalle = await this.repositorio.buscarDetalle(id);
+    if (!detalle) {
       throw new NotFoundException('El encargo no existe.');
     }
-    return encargo;
+    return detalle;
   }
 }

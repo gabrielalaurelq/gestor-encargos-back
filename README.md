@@ -2,7 +2,7 @@
 
 **Estado:** 🔵 En desarrollo — Sprint 0 / Fase 2 (autenticación y multitenancy), ver `docs/11-roadmap.md`
 
-Documentos base, todos aprobados: Doc 3 (Arquitectura), Doc 4 (Base de Datos), Doc 5 (API), Doc 8 (Backend).
+Documentos base, todos aprobados: Doc 3 (Arquitectura), Doc 4 (Base de Datos), Doc 5 (API, **v1.3** — enmendado desde el backend), Doc 8 (Backend).
 
 ## Hecho
 
@@ -132,15 +132,44 @@ Endpoints: `GET /encargos?estado=&fecha_desde=&fecha_hasta=&cliente_id=`, `POST 
 
 **Fuera de alcance hasta Sprint 3-4** (Doc 11): Objetos, Trabajos, Materiales, Pagos, Notas y Fotos, y con ellos el detalle anidado de `GET /encargos/{id}`. `recalcular()` y `sumas()` ya están escritos y probados para ese momento: hoy las sumas son 0 porque no hay forma de crear hijos, pero las consultas ya son las definitivas y excluyen los tombstones.
 
+### Sprint 3-4 — Hijos del agregado: Objetos, Trabajos, Pagos y Notas
+
+9 endpoints bajo `/encargos/{id}/...`, nunca como recurso suelto: es la regla de consistencia del Doc 2 llevada a la superficie de la API. **Es el primer sitio donde `precio_total` y `saldo_pendiente` se mueven de verdad** — hasta aquí las sumas del agregado eran siempre 0.
+
+- `domain/` — `ObjetoRecibido`, `Trabajo` (dos constructores: `desdeServicio` y `personalizado`), `Pago` y `Nota`. Ni `Pago` ni `Nota` exponen `aplicar()`: su inmutabilidad se expresa como **ausencia de métodos**, no como una validación que se pueda olvidar.
+- `GET /encargos/{id}` ya devuelve el detalle anidado que el Doc 5 promete (`objetos`, `trabajos`, `pagos`, `notas`). Las cinco consultas van en una transacción para que la foto sea coherente: sin ella, un pago registrado a mitad de la lectura podría salir en la lista pero no en el `saldo_pendiente` ya leído.
+
+**La decisión central: `mutarAgregado()`.**
+
+El Doc 8 Bloque 1 describe un único `save(encargo)` que reescribe el agregado completo en una transacción. Se implementó distinto, y a propósito: **reescribir hijos que no cambiaron movería su `actualizado_en`, que es exactamente lo que usa el delta sync del Doc 5.** Agregar un pago haría que todos los dispositivos se bajaran de nuevo todos los trabajos y objetos del encargo. No es un detalle de rendimiento: es un efecto incorrecto sobre el motor de sincronización.
+
+En su lugar, `EncargoRepository.mutarAgregado(encargoId, fn)` abre una transacción, carga la raíz, ejecuta `fn` —que escribe **solo** el hijo que cambió— y al salir **siempre** recalcula los derivados y los persiste. Que el recálculo viva ahí y no en cada caso de uso es lo que hace imposible escribir un hijo y olvidarse de la raíz. **Pendiente: enmendar el Doc 8** con este desvío y su motivo.
+
+**Decisiones tomadas en este bloque:**
+
+| Decisión | Elección | Motivo |
+|---|---|---|
+| Respuesta de las escrituras de hijos | El hijo + los 3 campos calculados de la raíz (`{trabajo: {…}, encargo: {precio_total, descuento, saldo_pendiente}}`) | Es lo que pide el Doc 5 Bloque 3 ("el Trabajo creado y el `precio_total` ya recalculado") sin inflar la respuesta: la app ya tiene el resto del encargo en local. `POST /notas` devuelve solo la nota — no afecta a ningún campo calculado. |
+| Idempotencia de los hijos | Helper propio (`application/crear-hijo.ts`), no `crearIdempotente` | En Postgres, un error dentro de una transacción interactiva la deja abortada: la relectura de recuperación de `crearIdempotente` fallaría ahí dentro. La solución es reintentar la transacción completa — en la segunda pasada el pre-chequeo encuentra lo que escribió el otro reintento. La decisión del `409` sí se comparte (`conflictoIdAjeno`), para que el texto y el criterio no se bifurquen. |
+| Trabajo desde catálogo | Se **copian** nombre y precio; `servicio_id` queda solo como rastro de procedencia | La no retroactividad del invariante 12 no se comprueba en ningún sitio: es una consecuencia de copiar en vez de referenciar. El test lo verifica subiendo el precio del catálogo *después* de crear el trabajo. |
+| `TRABAJO_ORIGEN_AMBIGUO` | `422` si llegan las dos vías (`servicio_id` **y** `descripcion`/`precio`), o ninguna | Se valida en el caso de uso y no en el DTO para que la app distinga "mandaste las dos vías" de "mandaste un campo mal tipado". Código nuevo, no estaba en el Doc 5. |
+| Servicio inactivo o de otro negocio | `422 SERVICIO_NO_DISPONIBLE` | PRD módulo 4: un servicio desactivado "deja de ofrecerse para trabajos nuevos". Sin la comprobación, la FK daría un error de Prisma que acabaría en `500`. |
+| Objeto vinculado de otro encargo | `422 OBJETO_NO_EN_ENCARGO` | El vínculo es intra-agregado; cruzarlo rompería la regla de consistencia. |
+| Origen de pago inválido o inactivo | `422 ORIGEN_PAGO_INVALIDO` | Invariante 5. Mismo motivo que arriba: evitar un `500` por la FK. |
+| Borrar un objeto | No borra sus Trabajos ni cambia `precio_total` | La FK es `ON DELETE SET NULL` y el invariante 19 permite un Trabajo sin objeto. |
+| Borrado de pagos | Lógico, nunca físico | Invariante 15: el negocio conserva el historial para saber si debe devolver dinero. El tombstone además propaga el borrado por delta sync. |
+
+**Lo que por fin se ejercita:** el ajuste automático del descuento (segunda mitad del invariante 2). Estaba escrito y probado desde Sprint 2, pero nunca se había ejecutado de verdad porque las sumas eran 0. El e2e lo comprueba: con descuento 50 y trabajos de 100 + 10, borrar el de 100 baja el descuento a 10 solo y deja `precio_total` en 0, sin error.
+
+**Fuera de alcance** (Doc 11, Sprint 7): Materiales y Fotografías. Fotos arrastra además las presigned URLs de R2 (Doc 8, Bloque 3), que es un trabajo aparte. Por eso `GET /encargos/{id}` no declara todavía la clave `fotos`: no se promete una clave que hoy siempre estaría vacía.
+
 ## Pendiente
 
-- Sprint 3-4: Objetos, Trabajos (con y sin catálogo), Materiales, Pagos, Notas y Fotos — todos bajo `/encargos/{id}/...`.
+- Sprint 5: Dashboard, Dictado por voz (STT), WhatsApp nivel gratuito.
+- Sprint 7: Materiales y Fotografías (requiere R2 + presigned URLs).
+- **Enmendar el Doc 8** con el desvío de `mutarAgregado` respecto del `save()` monolítico del Bloque 1.
+- Enmendar el Doc 5 con los códigos nuevos de este bloque: `OBJETO_DESCRIPCION_VACIA`, `TRABAJO_DESCRIPCION_VACIA`, `TRABAJO_PRECIO_INVALIDO`, `TRABAJO_ORIGEN_AMBIGUO`, `SERVICIO_NO_DISPONIBLE`, `OBJETO_NO_EN_ENCARGO`, `ORIGEN_PAGO_INVALIDO`, `NOTA_TEXTO_VACIO`.
 - Doc 5 Bloque 2: 4 endpoints sin implementar — `GET/PATCH /negocio` y `POST/DELETE /dispositivos/fcm-token`.
-- **Enmiendas pendientes al Doc 5**, por orden de urgencia (la app Flutter se escribirá contra el documento, no contra el código):
-  1. `POST /encargos/reservar-bloque-numeros` — el endpoint existe en el código y lo pide el Doc 3, pero no está en el Doc 5.
-  2. El `id` opcional en los `POST` y su respuesta `200` idempotente.
-  3. El arreglo `advertencias` en la respuesta de `PATCH /encargos/{id}/estado`.
-  4. Los códigos `422` nuevos: `TELEFONO_INVALIDO`, `SERVICIO_PRECIO_INVALIDO`, `MONTO_INVALIDO`, `FECHA_INVALIDA`, `ENCARGO_DESCRIPCION_VACIA`, `ENCARGO_NUMERO_EN_USO`, `TRANSICION_INVALIDA`, `CLIENTE_NO_ENCONTRADO`.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).
 
 ## Códigos de error no de negocio
