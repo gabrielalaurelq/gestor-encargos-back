@@ -25,4 +25,21 @@ export abstract class AuthRepository {
 
   /** Idempotente: no falla si la fila ya no existe. */
   abstract eliminarDispositivo(negocioId: string, dispositivoId: string): Promise<void>;
+
+  /**
+   * Fija o borra el token FCM de la fila de este dispositivo (Doc 5, Bloque 2).
+   *
+   * `dispositivos.fcm_token` es único **globalmente**, no por negocio. Eso es
+   * correcto —un token identifica una instalación concreta de la app—, pero
+   * obliga a limpiar el token de cualquier otra fila que lo tuviera antes de
+   * asignarlo: Firebase reasigna el mismo token cuando la app se reinstala.
+   *
+   * @throws {FcmTokenEnUsoError} si el token lo tiene un dispositivo de otro
+   *   negocio, que RLS no deja ver ni limpiar.
+   */
+  abstract fijarFcmToken(
+    negocioId: string,
+    dispositivoId: string,
+    fcmToken: string | null,
+  ): Promise<void>;
 }

@@ -190,14 +190,29 @@ despues del commit: 22:24:06.013   ← cuando se hizo visible
 
 **Lo que sigue abierto:** si el reloj del servidor salta hacia atrás más que el margen (un ajuste de NTP grande), ningún esquema basado en timestamps aguanta. La solución definitiva sería ordenar por commit real (`xmin` o una secuencia monótona), lo que cambia el contrato del Doc 5 y pide migrar 9 tablas. Anotado, no hecho.
 
+### Negocio propio y dispositivos — los 4 endpoints que faltaban del Doc 5 Bloque 2
+
+Con esto **el Bloque 2 del Doc 5 queda completo**, salvo Materiales y Fotos (Sprint 7).
+
+- **`src/modules/negocio/`** — `GET /negocio` y `PATCH /negocio`. Módulo propio porque Negocio es una raíz independiente (Doc 2 v1.1). Usa `PrismaService` crudo con el `negocioId` de la sesión: `negocios` es la tabla que **define** al tenant, no tiene columna `negocio_id` y queda fuera del alcance de la extensión y de RLS — igual que `AuthRepository` y `NumeracionRepository`.
+- **`POST`/`DELETE /dispositivos/fcm-token`** viven en el módulo **`auth`**, no en uno propio: la fila de `dispositivos` **es** la sesión de ese dispositivo. Auth gobierna su ciclo de vida (la crea en el login, la borra en el logout) y el token FCM es una columna de esa misma fila; partir la propiedad significaría dos dueños escribiendo la misma fila. `Dispositivo` tampoco es un agregado del Doc 2 — se añadió en el Doc 4 v1.3 como soporte de la sesión.
+
+| Decisión | Elección | Motivo |
+|---|---|---|
+| `GET /negocio` expone `plan` y `plan_vence_en` | Sí | La app los necesita para el feature-gating de las funciones premium (Doc 10, Bloque 2). El `PATCH` **no** los toca: los mueve la pasarela de pago. |
+| `google_uid` y `siguiente_bloque_numeros` | No se exponen | El primero es el identificador del proveedor de identidad; el segundo es el contador interno de numeración, que ya tiene su propio endpoint. |
+| `nombre_negocio` vacío | Equivale a quitarlo (`null`) | El campo es opcional y nace en `null` (Doc 5, Bloque 1). Al contrario que el nombre de un Cliente, que es obligatorio y da `422`. |
+| Token FCM ya usado **en el mismo negocio** | Se le suelta a la fila anterior y se asigna | `fcm_token` es único **globalmente**, y Firebase reasigna el mismo token cuando la app se reinstala. Sin esta limpieza, reinstalar rompería las notificaciones. |
+| Token FCM usado por **otro negocio** | `409 FCM_TOKEN_EN_USO` | RLS no deja ver ni limpiar la fila ajena —el rol de la aplicación no es superusuario, por diseño— y el `UNIQUE` es global. Pasa si el usuario anterior de ese teléfono nunca cerró sesión; se resuelve cuando esa sesión antigua hace logout. Las alternativas serían renunciar a la unicidad del token (dos negocios recibiendo las notificaciones del mismo teléfono) o a RLS. |
+| Dispositivo cuya fila ya no existe | `401 SESION_INVALIDA` | **Lo encontró el e2e:** daba `500`. El access token sigue siendo válido hasta vencer porque el `AuthGuard` no consulta la base en cada petición (por diseño), así que un dispositivo que cerró sesión puede seguir llamando ~30 min. No es un error interno: la sesión dejó de existir. |
+
 ## Pendiente
 
 - **La deuda de las fechas sigue abierta y ahora toca dinero.** `pago.fecha`, `fecha_listo` y `fecha_entrega_real` las pone el reloj del servidor. Con la cola Outbox, un pago registrado sin conexión el lunes y sincronizado el miércoles quedará fechado el miércoles — y la Caja diaria (PRD módulo 12) agrupa por fecha. Hay que decidir si el cuerpo acepta la fecha del dispositivo (choca con el invariante 8) o si se asume el desfase.
 - Sprint 5: Dashboard, Dictado por voz (STT), WhatsApp nivel gratuito.
 - Sprint 7: Materiales y Fotografías (requiere R2 + presigned URLs).
 - **Enmendar el Doc 8** con el desvío de `mutarAgregado` respecto del `save()` monolítico del Bloque 1.
-- Enmendar el Doc 5 con: el margen de solape y el `since` inclusivo de `/sync`, y los códigos nuevos `OBJETO_DESCRIPCION_VACIA`, `TRABAJO_DESCRIPCION_VACIA`, `TRABAJO_PRECIO_INVALIDO`, `TRABAJO_ORIGEN_AMBIGUO`, `SERVICIO_NO_DISPONIBLE`, `OBJETO_NO_EN_ENCARGO`, `ORIGEN_PAGO_INVALIDO`, `NOTA_TEXTO_VACIO`.
-- Doc 5 Bloque 2: 4 endpoints sin implementar — `GET/PATCH /negocio` y `POST/DELETE /dispositivos/fcm-token`.
+- Enmendar el Doc 5 con: el margen de solape y el `since` inclusivo de `/sync`, el `409 FCM_TOKEN_EN_USO`, y los códigos nuevos `OBJETO_DESCRIPCION_VACIA`, `TRABAJO_DESCRIPCION_VACIA`, `TRABAJO_PRECIO_INVALIDO`, `TRABAJO_ORIGEN_AMBIGUO`, `SERVICIO_NO_DISPONIBLE`, `OBJETO_NO_EN_ENCARGO`, `ORIGEN_PAGO_INVALIDO`, `NOTA_TEXTO_VACIO`.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).
 
 ## Códigos de error no de negocio

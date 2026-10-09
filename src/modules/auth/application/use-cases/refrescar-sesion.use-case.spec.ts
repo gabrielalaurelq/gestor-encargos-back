@@ -9,6 +9,7 @@ describe('RefrescarSesionUseCase', () => {
     crearDispositivo: jest.fn(),
     existeDispositivo: jest.fn(),
     eliminarDispositivo: jest.fn(),
+    fijarFcmToken: jest.fn(),
   };
   const tokens: jest.Mocked<ServicioTokens> = {
     emitirAccess: jest.fn(),

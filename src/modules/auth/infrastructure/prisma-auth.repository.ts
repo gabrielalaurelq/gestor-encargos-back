@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
+import { ErrorAutenticacion } from '../../../shared/application/error-autenticacion';
+import { FcmTokenEnUsoError } from '../application/fcm-token-en-uso.error';
 import { AuthRepository, NegocioAutenticado } from '../application/ports/auth.repository';
+
+const VIOLACION_UNICIDAD = 'P2002';
+const FILA_INEXISTENTE = 'P2025';
 
 @Injectable()
 export class PrismaAuthRepository extends AuthRepository {
@@ -41,6 +47,46 @@ export class PrismaAuthRepository extends AuthRepository {
   eliminarDispositivo(negocioId: string, dispositivoId: string) {
     return this.prisma.enNegocio(negocioId, async (tx) => {
       await tx.dispositivo.deleteMany({ where: { id: dispositivoId, negocioId } });
+    });
+  }
+
+  fijarFcmToken(negocioId: string, dispositivoId: string, fcmToken: string | null) {
+    return this.prisma.enNegocio(negocioId, async (tx) => {
+      if (fcmToken !== null) {
+        // Firebase reasigna el mismo token cuando la app se reinstala, así que
+        // primero se suelta de cualquier otra fila de este negocio que lo
+        // tuviera. Sin esto, el UNIQUE global rechazaría la asignación.
+        await tx.dispositivo.updateMany({
+          where: { negocioId, fcmToken, NOT: { id: dispositivoId } },
+          data: { fcmToken: null },
+        });
+      }
+
+      try {
+        await tx.dispositivo.update({
+          where: { id: dispositivoId },
+          data: { fcmToken },
+        });
+      } catch (error) {
+        // Si sigue chocando, el token lo tiene un dispositivo de otro negocio:
+        // RLS no lo deja ver ni limpiar.
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+          throw error;
+        }
+        if (error.code === VIOLACION_UNICIDAD) {
+          throw new FcmTokenEnUsoError();
+        }
+        // La fila ya no existe: este dispositivo cerró sesión, pero su access
+        // token sigue vigente porque el AuthGuard no consulta la base en cada
+        // petición. No es un error interno — la sesión dejó de existir.
+        if (error.code === FILA_INEXISTENTE) {
+          throw new ErrorAutenticacion(
+            'SESION_INVALIDA',
+            'La sesión de este dispositivo ya no existe.',
+          );
+        }
+        throw error;
+      }
     });
   }
 }
