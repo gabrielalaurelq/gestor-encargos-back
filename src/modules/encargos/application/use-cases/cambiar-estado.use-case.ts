@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { hoyEnZonaNegocio } from '../../../../shared/domain/fecha';
+import { resolverFechaDeHecho } from '../../../../shared/domain/fecha';
 import { AdvertenciaEncargo, Encargo } from '../../domain/encargo';
 import { EncargoRepository } from '../../domain/repositories/encargo.repository';
 import { CambiarEstadoDto } from '../dto/cambiar-estado.dto';
@@ -13,14 +13,11 @@ export interface ResultadoCambiarEstado {
 /**
  * `PATCH /encargos/{id}/estado` (Doc 5, Bloque 2).
  *
- * **Deuda conocida — la fecha la pone el servidor, no el dispositivo.** El Doc
- * 2 (reglas 3-4) habla de "la fecha del dispositivo". Hoy se usa el reloj del
- * servidor en la zona del negocio, que coincide mientras haya conexión. Cuando
- * exista la cola Outbox (Doc 3), una transición hecha el lunes sin conexión y
- * sincronizada el miércoles quedaría fechada el miércoles. Al implementar el
- * motor de sincronización habrá que decidir si el cuerpo acepta la fecha del
- * dispositivo — lo que choca con el invariante 8 ("nunca editable") — o si se
- * asume ese desfase.
+ * `fecha_listo` y `fecha_entrega_real` las fija el reloj del **dispositivo**
+ * (Doc 2, reglas 3-4: "fecha del dispositivo"); si el cuerpo no trae `fecha`,
+ * se usa la del servidor. El invariante 8 —"nunca editables manualmente"— se
+ * respeta igual: dice que el usuario no puede teclearlas, no que el reloj deba
+ * vivir en el servidor. La app las calcula sola y la UI no las expone.
  */
 @Injectable()
 export class CambiarEstadoUseCase {
@@ -35,7 +32,10 @@ export class CambiarEstadoUseCase {
     // Se guarda antes: `transicionarA` muta el estado, así que después ya no
     // se podría distinguir una transición real de repetir el estado actual.
     const anterior = encargo.estado;
-    const advertencias = encargo.transicionarA(dto.estado, hoyEnZonaNegocio());
+    const advertencias = encargo.transicionarA(
+      dto.estado,
+      resolverFechaDeHecho(dto.fecha, 'fecha del cambio de estado'),
+    );
 
     // Repetir el mismo estado no cambia nada y no debe mover `actualizado_en`,
     // que es lo que lee el delta sync.

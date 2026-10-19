@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { hoyEnZonaNegocio } from '../../../../shared/domain/fecha';
+import { resolverFechaDeHecho } from '../../../../shared/domain/fecha';
 import { Nota } from '../../domain/nota';
 import { EncargoRepository } from '../../domain/repositories/encargo.repository';
 import { ResultadoHijo, crearHijo } from '../crear-hijo';
@@ -20,7 +20,8 @@ export class CrearNotaUseCase {
       encargoId,
       id: dto.id,
       leer: (hijos, id) => hijos.buscarNota(id),
-      escribir: (hijos) => hijos.crearNota(Nota.crear(dto, hoyEnZonaNegocio())),
+      escribir: (hijos) =>
+        hijos.crearNota(Nota.crear(dto, resolverFechaDeHecho(dto.fecha, 'fecha de la nota'))),
     });
   }
 }

@@ -208,7 +208,28 @@ Con esto **el Bloque 2 del Doc 5 queda completo**, salvo Materiales y Fotos (Spr
 
 ## Pendiente
 
-- **La deuda de las fechas sigue abierta y ahora toca dinero.** `pago.fecha`, `fecha_listo` y `fecha_entrega_real` las pone el reloj del servidor. Con la cola Outbox, un pago registrado sin conexión el lunes y sincronizado el miércoles quedará fechado el miércoles — y la Caja diaria (PRD módulo 12) agrupa por fecha. Hay que decidir si el cuerpo acepta la fecha del dispositivo (choca con el invariante 8) o si se asume el desfase.
+### Fechas de hecho: las pone el dispositivo
+
+**Esto corrige un desvío mío, no resuelve una ambigüedad de los documentos.** Venía anotando las fechas como "deuda a decidir", pero los documentos nunca estuvieron en duda:
+
+- **Doc 2, invariante 4:** *"`pago.fecha` es siempre la fecha del dispositivo al momento del registro — nunca editable ni retroactiva."*
+- **Doc 2, reglas 3-4:** *"se asigna `fecha_listo = hoy` (fecha del dispositivo)."*
+- **PRD, módulo 5:** *"su fecha es siempre la fecha actual del dispositivo (automática, no editable) — igual que `fecha_listo` y `fecha_entrega_real`."*
+
+Yo había implementado el reloj del servidor en tres sitios donde los documentos piden el del dispositivo. Y el invariante 8 —*"nunca son editables manualmente"*— no lo impedía: dice que el **usuario** no puede teclear la fecha, no que el reloj deba vivir en el servidor. Las dos cosas conviven: el dispositivo manda la fecha que calculó solo y la UI nunca la expone.
+
+`POST /pagos`, `POST /notas` y `PATCH /estado` aceptan ahora un campo `fecha` opcional (`AAAA-MM-DD`). Si no viene, la pone el servidor — así la API sigue siendo usable desde Swagger o `curl`.
+
+**La distinción que conviene no perder** (no está en ningún documento, y es la que evita el error peligroso):
+
+| Tipo de fecha | Reloj | Por qué |
+|---|---|---|
+| **Hechos del negocio** — `pago.fecha`, `fecha_listo`, `fecha_entrega_real`, `nota.fecha` | **Dispositivo** | Son hechos del mundo real. El dispositivo sabe cuándo ocurrieron; el servidor solo sabe cuándo se enteró. Es lo que hace correcta la cola Outbox: un pago del lunes sincronizado el miércoles queda fechado el lunes, que es lo que la Caja diaria necesita para agrupar bien. |
+| **Metadatos de sincronización** — `creado_en`, `actualizado_en` | **Servidor, siempre** | Son maquinaria del motor de sync. Si el cliente pudiera fijar `actualizado_en`, un teléfono con el reloj adelantado ganaría todos los conflictos de Last-Write-Wins para siempre. |
+
+Validación (`resolverFechaDeHecho` en `shared/domain/fecha.ts`): hasta **1 día** en el futuro —absorbe el desfase de zona y un reloj de móvil algo adelantado— y hasta **90 días** en el pasado, el mismo horizonte que la purga de tombstones del Doc 4. Fuera de rango → `422 FECHA_FUERA_DE_RANGO`, con el rango aceptado en los detalles.
+
+**Lo que se acepta a cambio:** un teléfono con el reloj mal puesto producirá fechas malas y descuadrará la Caja diaria del negociante. La tolerancia de 1 día acota el futuro, pero no lo elimina. Y la fecha pasa a ser falsificable por el dueño del negocio sobre sus propios datos — sin riesgo entre negocios (RLS y el `negocioId` de la sesión lo impiden); falsear tus propias fechas es un problema de tu contabilidad, no de seguridad. No se puede acotar el pasado contra la creación del encargo, que sería lo natural, porque `creado_en` es del servidor: un encargo creado sin conexión tendría `creado_en` **posterior** a la fecha real de su propio pago.
 - Sprint 5: Dashboard, Dictado por voz (STT), WhatsApp nivel gratuito.
 - Sprint 7: Materiales y Fotografías (requiere R2 + presigned URLs).
 - **Enmendar el Doc 8** con el desvío de `mutarAgregado` respecto del `save()` monolítico del Bloque 1.

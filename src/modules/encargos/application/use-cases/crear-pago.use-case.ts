@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { hoyEnZonaNegocio } from '../../../../shared/domain/fecha';
+import { resolverFechaDeHecho } from '../../../../shared/domain/fecha';
 import { OrigenPagoInvalidoError } from '../../domain/errores';
 import { Pago } from '../../domain/pago';
 import { EncargoRepository } from '../../domain/repositories/encargo.repository';
@@ -9,11 +9,13 @@ import { CrearPagoDto } from '../dto/crear-pago.dto';
 /**
  * `POST /encargos/{id}/pagos` (Doc 5, Bloque 2). Recalcula `saldo_pendiente`.
  *
- * La `fecha` la pone el servidor, nunca el request (Doc 2, invariante 4), con
- * la misma deuda anotada en `CambiarEstadoUseCase`: con la cola Outbox, un
- * pago registrado sin conexión se fechará al sincronizar, no cuando ocurrió.
- * En un módulo de dinero eso importa más que en los demás —afecta a la Caja
- * diaria—, así que es lo primero a resolver al construir el motor de sync.
+ * La `fecha` la pone el reloj del **dispositivo** (Doc 2, invariante 4: "la
+ * fecha del dispositivo al momento del registro"); si el cuerpo no la trae, se
+ * usa la del servidor. Es lo que hace correcta la cola Outbox: un pago
+ * registrado sin conexión el lunes y sincronizado el miércoles queda fechado
+ * el lunes, que es lo que necesita la Caja diaria (PRD módulo 12) para
+ * agrupar bien. El usuario nunca la teclea, así que sigue siendo automática y
+ * no editable.
  */
 @Injectable()
 export class CrearPagoUseCase {
@@ -35,7 +37,7 @@ export class CrearPagoUseCase {
 
         const pago = Pago.crear(
           { id: dto.id, monto: dto.monto, origenId: dto.origen_id, tipo: dto.tipo },
-          hoyEnZonaNegocio(),
+          resolverFechaDeHecho(dto.fecha, 'fecha del pago'),
         );
         return hijos.crearPago(pago);
       },

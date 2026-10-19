@@ -500,6 +500,139 @@ describe('Hijos del encargo (e2e)', () => {
     });
   });
 
+  describe('fecha del dispositivo (Doc 2, invariante 4 y reglas 3-4)', () => {
+    let encargoId: string;
+
+    const diasAtras = (dias: number) =>
+      new Date(Date.now() - dias * 86_400_000).toISOString().slice(0, 10);
+
+    beforeEach(async () => {
+      encargoId = await nuevoEncargo();
+      await comoA(http().post(`/api/v1/encargos/${encargoId}/trabajos`)).send({
+        descripcion: 'Trabajo',
+        precio: 300,
+      });
+    });
+
+    it('un pago registrado sin conexion conserva SU fecha, no la de la sincronizacion', async () => {
+      const haceTresDias = diasAtras(3);
+
+      const res = await comoA(http().post(`/api/v1/encargos/${encargoId}/pagos`)).send({
+        monto: 100,
+        origen_id: origenEfectivo,
+        tipo: 'ADELANTO',
+        fecha: haceTresDias,
+      });
+
+      expect(res.status).toBe(201);
+      // Es lo que necesita la Caja diaria (PRD modulo 12) para agrupar bien.
+      expect(res.body.pago.fecha).toBe(haceTresDias);
+    });
+
+    it('sin fecha en el cuerpo, la pone el servidor', async () => {
+      const res = await comoA(http().post(`/api/v1/encargos/${encargoId}/pagos`)).send({
+        monto: 50,
+        origen_id: origenEfectivo,
+        tipo: 'PAGO',
+      });
+
+      expect(res.body.pago.fecha).toBe(diasAtras(0));
+    });
+
+    it('una fecha demasiado antigua -> 422 FECHA_FUERA_DE_RANGO', async () => {
+      const res = await comoA(http().post(`/api/v1/encargos/${encargoId}/pagos`)).send({
+        monto: 50,
+        origen_id: origenEfectivo,
+        tipo: 'PAGO',
+        fecha: diasAtras(120),
+      });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.codigo).toBe('FECHA_FUERA_DE_RANGO');
+      expect(res.body.error.detalles.rango_aceptado).toMatchObject({
+        desde: expect.any(String),
+        hasta: expect.any(String),
+      });
+    });
+
+    it('una fecha en el futuro mas alla de la tolerancia -> 422', async () => {
+      const res = await comoA(http().post(`/api/v1/encargos/${encargoId}/pagos`)).send({
+        monto: 50,
+        origen_id: origenEfectivo,
+        tipo: 'PAGO',
+        fecha: diasAtras(-5),
+      });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.codigo).toBe('FECHA_FUERA_DE_RANGO');
+    });
+
+    it('una fecha mal formada -> 422 FECHA_INVALIDA', async () => {
+      const res = await comoA(http().post(`/api/v1/encargos/${encargoId}/pagos`)).send({
+        monto: 50,
+        origen_id: origenEfectivo,
+        tipo: 'PAGO',
+        fecha: '12/10/2026',
+      });
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.codigo).toBe('FECHA_INVALIDA');
+    });
+
+    it('PATCH /estado graba fecha_listo con la fecha del dispositivo', async () => {
+      const ayer = diasAtras(1);
+
+      const res = await comoA(http().patch(`/api/v1/encargos/${encargoId}/estado`)).send({
+        estado: 'LISTO',
+        fecha: ayer,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.fecha_listo).toBe(ayer);
+    });
+
+    it('al entregar saltandose LISTO, ambas fechas toman la del dispositivo', async () => {
+      const ayer = diasAtras(1);
+
+      const res = await comoA(http().patch(`/api/v1/encargos/${encargoId}/estado`)).send({
+        estado: 'ENTREGADO',
+        fecha: ayer,
+      });
+
+      expect(res.body.fecha_listo).toBe(ayer);
+      expect(res.body.fecha_entrega_real).toBe(ayer);
+    });
+
+    it('una nota conserva la fecha del dispositivo', async () => {
+      const haceDosDias = diasAtras(2);
+
+      const res = await comoA(http().post(`/api/v1/encargos/${encargoId}/notas`)).send({
+        texto: 'Anotado sin conexion',
+        fecha: haceDosDias,
+      });
+
+      expect(res.body.fecha).toBe(haceDosDias);
+    });
+
+    it('creado_en y actualizado_en los sigue poniendo el servidor', async () => {
+      const haceTresDias = diasAtras(3);
+
+      const res = await comoA(http().post(`/api/v1/encargos/${encargoId}/pagos`)).send({
+        monto: 70,
+        origen_id: origenEfectivo,
+        tipo: 'PAGO',
+        fecha: haceTresDias,
+      });
+
+      // La fecha del hecho es del dispositivo; los metadatos del sync, del
+      // servidor. Si el cliente pudiera mover actualizado_en, un telefono con
+      // el reloj adelantado ganaria todos los conflictos de LWW.
+      expect(res.body.pago.fecha).toBe(haceTresDias);
+      expect(res.body.pago.creado_en.slice(0, 10)).toBe(diasAtras(0));
+      expect(res.body.pago.actualizado_en.slice(0, 10)).toBe(diasAtras(0));
+    });
+  });
+
   describe('notas', () => {
     let encargoId: string;
 
