@@ -146,8 +146,13 @@ export class PrismaEncargoRepository extends EncargoRepository {
           where,
           select: CAMPOS,
           // Los listados que alimenta (Dashboard, Balance, Calendario) se leen
-          // por fecha de compromiso; el número desempata dentro del día.
-          orderBy: [{ fechaEntregaAcordada: 'asc' }, { numero: 'asc' }],
+          // por fecha de compromiso; el número desempata dentro del día. El
+          // historial de un cliente, al revés: lo último primero. El `id`
+          // cierra el orden para que la paginación por offset sea estable.
+          orderBy:
+            filtro.orden === 'recientes'
+              ? [{ creadoEn: 'desc' }, { id: 'asc' }]
+              : [{ fechaEntregaAcordada: 'asc' }, { numero: 'asc' }, { id: 'asc' }],
           skip: (filtro.pagina - 1) * filtro.porPagina,
           take: filtro.porPagina,
         }),

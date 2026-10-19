@@ -206,6 +206,22 @@ Con esto **el Bloque 2 del Doc 5 queda completo**, salvo Materiales y Fotos (Spr
 | Token FCM usado por **otro negocio** | `409 FCM_TOKEN_EN_USO` | RLS no deja ver ni limpiar la fila ajena —el rol de la aplicación no es superusuario, por diseño— y el `UNIQUE` es global. Pasa si el usuario anterior de ese teléfono nunca cerró sesión; se resuelve cuando esa sesión antigua hace logout. Las alternativas serían renunciar a la unicidad del token (dos negocios recibiendo las notificaciones del mismo teléfono) o a RLS. |
 | Dispositivo cuya fila ya no existe | `401 SESION_INVALIDA` | **Lo encontró el e2e:** daba `500`. El access token sigue siendo válido hasta vencer porque el `AuthGuard` no consulta la base en cada petición (por diseño), así que un dispositivo que cerró sesión puede seguir llamando ~30 min. No es un error interno: la sesión dejó de existir. |
 
+### Historial del cliente — lo que quedó pendiente del Sprint 1
+
+`GET /clientes/{id}/encargos` (PRD módulo 1) y el resumen de Historial dentro de `GET /clientes/{id}` (PRD módulo 18). Se dejaron en Sprint 1 porque dependían de Encargos y nunca se retomaron hasta ahora.
+
+- **`GET /clientes/{id}/encargos`** vive en el módulo **`encargos`** (`ClienteEncargosController`), aunque la ruta cuelgue de `/clientes`: lo que devuelve son encargos, y `EncargosModule` ya importa `ClientesModule` — declararla en `clientes` crearía una dependencia circular.
+- **El resumen** es un puerto de consulta propio en `clientes` (`HistorialClienteConsulta`), no un método de `ClienteRepository`: no reconstituye el agregado ni sostiene invariantes, solo proyecta — el mismo criterio que el módulo `sync`. Las tres consultas van en una transacción para que los tres números sean una foto coherente.
+
+| Decisión | Elección | Motivo |
+|---|---|---|
+| Paginación de `/clientes/{id}/encargos` | Paginado, mismo formato del Doc 5 Bloque 4 | Elegido por el usuario: el PRD 18 contempla clientes con 100+ encargos. |
+| Orden | `creado_en` descendente, `id` como desempate | Un historial se lee de lo último a lo primero. El desempate hace estable la paginación por offset (se añadió también al orden por fecha acordada de `GET /encargos`). |
+| Cliente inexistente vs. sin encargos | `404` vs. `200` con lista vacía | Con solo el filtro `cliente_id` de `GET /encargos` ambos casos se verían iguales. |
+| Forma del resumen | `historial: {total_encargos, total_pagado, ultimo_encargo_en}`, **solo** en la ficha | Los tres números del PRD 18. En el listado costaría tres consultas por fila. |
+| `total_pagado` | Pagos no eliminados, **incluidos** los de encargos cancelados | PRD 18, casos extremos: el dinero ingresó (mismo criterio que Caja diaria). |
+| `ultimo_encargo_en` | `creado_en` del encargo más reciente (reloj del **servidor**) | El encargo no tiene otra fecha de alta. Un encargo creado offline quedará con la fecha en que sincronizó; para "Última visita" el desfase es tolerable, y evitarlo exigiría una columna de hecho nueva en el Doc 4. |
+
 ## Pendiente
 
 ### Fechas de hecho: las pone el dispositivo
@@ -231,7 +247,8 @@ Validación (`resolverFechaDeHecho` en `shared/domain/fecha.ts`): hasta **1 día
 
 **Lo que se acepta a cambio:** un teléfono con el reloj mal puesto producirá fechas malas y descuadrará la Caja diaria del negociante. La tolerancia de 1 día acota el futuro, pero no lo elimina. Y la fecha pasa a ser falsificable por el dueño del negocio sobre sus propios datos — sin riesgo entre negocios (RLS y el `negocioId` de la sesión lo impiden); falsear tus propias fechas es un problema de tu contabilidad, no de seguridad. No se puede acotar el pasado contra la creación del encargo, que sería lo natural, porque `creado_en` es del servidor: un encargo creado sin conexión tendría `creado_en` **posterior** a la fecha real de su propio pago.
 - Sprint 5: Dashboard, Dictado por voz (STT), WhatsApp nivel gratuito.
-- Sprint 7: Materiales y Fotografías (requiere R2 + presigned URLs).
+- **Orden acordado para cerrar el backend del MVP (2026-10-19):** ~~A. historial del cliente~~ → B. Materiales → C. `GET /buscar` → F. `PurgaSoftDeleteJob` + `RevisarVencimientosPlanJob` → D. Fotos (R2 + URLs prefirmadas) → E. `NotificacionesService` (FCM) + `EvaluarRecordatoriosJob`.
+- **Caja diaria, Balance de Carga y Calendario no tienen endpoint propio, por diseño** (confirmado con el usuario): el Doc 5 no los define y su Bloque 4 explica por qué — la app es offline-first y las calcula sobre Drift con lo que trae `/sync`. Un endpoint de servidor duplicaría la lógica y daría cifras distintas a las locales sin conexión.
 - **Documentos al día:** el Doc 5 está en **v1.4** y el Doc 8 en **v1.1**, ambos enmendados desde el código (`docs/`, sin commitear). Cada sprint nuevo probablemente aporte otra enmienda: conviene hacerlas al cerrar el sprint, no al final, porque el Doc 5 es el contrato contra el que se escribirá la app Flutter.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).
 

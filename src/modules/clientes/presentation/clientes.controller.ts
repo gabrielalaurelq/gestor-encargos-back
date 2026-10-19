@@ -26,15 +26,20 @@ import { ActualizarClienteUseCase } from '../application/use-cases/actualizar-cl
 import { CrearClienteUseCase } from '../application/use-cases/crear-cliente.use-case';
 import { ListarClientesUseCase } from '../application/use-cases/listar-clientes.use-case';
 import { ObtenerClienteUseCase } from '../application/use-cases/obtener-cliente.use-case';
-import { ClienteResponse, aClienteResponse } from './cliente.response';
+import {
+  ClienteDetalleResponse,
+  ClienteResponse,
+  aClienteDetalleResponse,
+  aClienteResponse,
+} from './cliente.response';
 
 // Doc 5, Bloque 2 — agregado Cliente. Todas las rutas exigen sesión: el
 // AuthGuard global las protege sin `@Public()`, y `PrismaNegocio` las ata al
 // negocio de esa sesión.
 //
-// Fuera de alcance hasta Sprint 2 (dependen del módulo Encargos):
-//   - `GET /clientes/{id}/encargos` (historial completo, módulo 1)
-//   - el resumen de Historial dentro de `GET /clientes/{id}` (módulo 18)
+// `GET /clientes/{id}/encargos` vive en el módulo Encargos
+// (`ClienteEncargosController`): lista encargos, y `EncargosModule` ya importa
+// `ClientesModule` — declararla acá crearía una dependencia circular.
 @ApiTags('clientes')
 @ApiBearerAuth()
 @Controller('clientes')
@@ -79,11 +84,13 @@ export class ClientesController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Ficha de un cliente.' })
-  @ApiOkResponse({ type: ClienteResponse })
+  @ApiOperation({
+    summary: 'Ficha de un cliente, con el resumen de Historial (PRD módulo 18).',
+  })
+  @ApiOkResponse({ type: ClienteDetalleResponse })
   @ApiResponse({ status: 404, description: 'NO_ENCONTRADO — no existe o es de otro negocio.' })
-  async obtenerCliente(@Param('id', ParseUUIDPipe) id: string): Promise<ClienteResponse> {
-    return aClienteResponse(await this.obtener.execute(id));
+  async obtenerCliente(@Param('id', ParseUUIDPipe) id: string): Promise<ClienteDetalleResponse> {
+    return aClienteDetalleResponse(await this.obtener.execute(id));
   }
 
   @Patch(':id')

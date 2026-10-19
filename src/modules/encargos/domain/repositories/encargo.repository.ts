@@ -12,6 +12,12 @@ export interface FiltroEncargos {
   fechaDesde?: Date;
   fechaHasta?: Date;
   clienteId?: string;
+  /**
+   * `compromiso` (por defecto): por fecha acordada ascendente, como se leen
+   * Dashboard, Balance y Calendario. `recientes`: el más nuevo primero, que es
+   * como se lee un historial (`GET /clientes/{id}/encargos`).
+   */
+  orden?: 'compromiso' | 'recientes';
   pagina: number;
   porPagina: number;
 }
