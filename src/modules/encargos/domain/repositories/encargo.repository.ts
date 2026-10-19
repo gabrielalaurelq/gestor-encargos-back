@@ -1,6 +1,7 @@
 import { PaginaResultado } from '../../../../shared/presentation/paginacion';
 import { Encargo, SumasEncargo } from '../encargo';
 import { EstadoEncargo } from '../estado-encargo';
+import { Material } from '../material';
 import { Nota } from '../nota';
 import { ObjetoRecibido } from '../objeto-recibido';
 import { Pago } from '../pago';
@@ -30,11 +31,15 @@ export interface FiltroEncargos {
  * entidad solo necesita las **sumas** para sostener sus invariantes, no las
  * colecciones. Embeberlas serviría únicamente para serializar, y obligaría a
  * cargarlas en cada lectura de la raíz. Fotos llega en Sprint 7.
+ *
+ * `materiales` va plano, con su `trabajoId`: la respuesta los anida dentro de
+ * cada trabajo, que es una decisión de presentación, no del dominio.
  */
 export interface DetalleEncargo {
   encargo: Encargo;
   objetos: ObjetoRecibido[];
   trabajos: Trabajo[];
+  materiales: Material[];
   pagos: Pago[];
   notas: Nota[];
 }
@@ -55,13 +60,26 @@ export interface EscriturasHijos {
   buscarObjeto(id: string): Promise<ObjetoRecibido | null>;
   crearObjeto(objeto: ObjetoRecibido): Promise<ObjetoRecibido>;
   actualizarObjeto(objeto: ObjetoRecibido): Promise<ObjetoRecibido>;
-  /** Soft delete. `false` si no existía o ya estaba borrado. */
+  /**
+   * Soft delete. `false` si no existía o ya estaba borrado. Reproduce el
+   * `ON DELETE` del Doc 4 en la misma transacción: sus fotos se marcan
+   * borradas (`CASCADE`) y los trabajos que lo referenciaban quedan sin objeto
+   * (`SET NULL`) — para que el delta sync no entregue hijos colgando de un
+   * padre borrado.
+   */
   eliminarObjeto(id: string): Promise<boolean>;
 
   buscarTrabajo(id: string): Promise<Trabajo | null>;
   crearTrabajo(trabajo: Trabajo): Promise<Trabajo>;
   actualizarTrabajo(trabajo: Trabajo): Promise<Trabajo>;
+  /** Soft delete; sus materiales se marcan borrados con él (Doc 4: `CASCADE`). */
   eliminarTrabajo(id: string): Promise<boolean>;
+
+  /** Material vivo de un trabajo vivo de este encargo. */
+  buscarMaterial(trabajoId: string, id: string): Promise<Material | null>;
+  crearMaterial(material: Material): Promise<Material>;
+  /** Soft delete. `false` si no existía, ya estaba borrado o es de otro trabajo. */
+  eliminarMaterial(trabajoId: string, id: string): Promise<boolean>;
 
   buscarPago(id: string): Promise<Pago | null>;
   crearPago(pago: Pago): Promise<Pago>;

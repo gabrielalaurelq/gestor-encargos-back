@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { isoDesdeFecha } from '../../../shared/domain/fecha';
 import { Encargo } from '../domain/encargo';
+import { Material } from '../domain/material';
 import { Nota } from '../domain/nota';
 import { ObjetoRecibido } from '../domain/objeto-recibido';
 import { Pago, TipoPago } from '../domain/pago';
@@ -53,6 +54,35 @@ export class TrabajoResponse {
 
   @ApiProperty({ format: 'date-time' })
   actualizado_en!: string;
+}
+
+export class MaterialResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ format: 'uuid' })
+  trabajo_id!: string;
+
+  @ApiProperty({ example: 'Cierre metálico' })
+  nombre!: string;
+
+  @ApiProperty({ example: '2 metros', nullable: true })
+  cantidad!: string | null;
+
+  @ApiProperty({ example: 4.5, nullable: true, description: 'Solo informativo (PRD 15).' })
+  costo!: number | null;
+
+  @ApiProperty({ format: 'date-time' })
+  creado_en!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  actualizado_en!: string;
+}
+
+/** Trabajo tal como aparece en el detalle del encargo: con sus materiales. */
+export class TrabajoDetalleResponse extends TrabajoResponse {
+  @ApiProperty({ isArray: true, type: MaterialResponse })
+  materiales!: MaterialResponse[];
 }
 
 export class PagoResponse {
@@ -146,6 +176,18 @@ export function aTrabajoResponse(trabajo: Trabajo): TrabajoResponse {
     precio_bloqueado: trabajo.precioBloqueado,
     creado_en: trabajo.creadoEn!.toISOString(),
     actualizado_en: trabajo.actualizadoEn!.toISOString(),
+  };
+}
+
+export function aMaterialResponse(material: Material): MaterialResponse {
+  return {
+    id: material.id,
+    trabajo_id: material.trabajoId,
+    nombre: material.nombre,
+    cantidad: material.cantidad,
+    costo: material.costo?.soles ?? null,
+    creado_en: material.creadoEn!.toISOString(),
+    actualizado_en: material.actualizadoEn!.toISOString(),
   };
 }
 

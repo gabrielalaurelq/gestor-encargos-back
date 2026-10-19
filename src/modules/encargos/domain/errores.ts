@@ -141,3 +141,22 @@ export class NotaTextoVacioError extends DomainError {
     super('El texto de la nota no puede estar vacío.');
   }
 }
+
+// --- Materiales (Sprint 7) ---------------------------------------------------
+
+export class MaterialNombreVacioError extends DomainError {
+  readonly codigo = 'MATERIAL_NOMBRE_VACIO';
+
+  constructor() {
+    super('El nombre del material no puede estar vacío.');
+  }
+}
+
+export class MaterialCostoInvalidoError extends DomainError {
+  readonly codigo = 'MATERIAL_COSTO_INVALIDO';
+
+  constructor(costo: string) {
+    // Doc 4: CHECK costo >= 0. Sin este código, el CHECK daría un 500.
+    super('El costo de un material no puede ser negativo.', { costo_recibido: Number(costo) });
+  }
+}

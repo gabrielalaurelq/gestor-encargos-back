@@ -17,11 +17,13 @@ import {
   ResultadoMutacion,
 } from '../domain/repositories/encargo.repository';
 import {
+  CAMPOS_MATERIAL,
   CAMPOS_NOTA,
   CAMPOS_OBJETO,
   CAMPOS_PAGO,
   CAMPOS_TRABAJO,
   VIVOS,
+  aMaterialDominio,
   aNotaDominio,
   aObjetoDominio,
   aPagoDominio,
@@ -96,7 +98,7 @@ export class PrismaEncargoRepository extends EncargoRepository {
         return null;
       }
 
-      const [objetos, trabajos, pagos, notas] = await Promise.all([
+      const [objetos, trabajos, materiales, pagos, notas] = await Promise.all([
         tx.objetoRecibido.findMany({
           where: { encargoId: id, ...VIVOS },
           select: CAMPOS_OBJETO,
@@ -105,6 +107,11 @@ export class PrismaEncargoRepository extends EncargoRepository {
         tx.trabajo.findMany({
           where: { encargoId: id, ...VIVOS },
           select: CAMPOS_TRABAJO,
+          orderBy: { creadoEn: 'asc' },
+        }),
+        tx.material.findMany({
+          where: { ...VIVOS, trabajo: { encargoId: id, ...VIVOS } },
+          select: CAMPOS_MATERIAL,
           orderBy: { creadoEn: 'asc' },
         }),
         tx.pago.findMany({
@@ -121,7 +128,7 @@ export class PrismaEncargoRepository extends EncargoRepository {
         }),
       ]);
 
-      return { fila, objetos, trabajos, pagos, notas };
+      return { fila, objetos, trabajos, materiales, pagos, notas };
     });
 
     if (!detalle) {
@@ -132,6 +139,7 @@ export class PrismaEncargoRepository extends EncargoRepository {
       encargo: PrismaEncargoRepository.aDominio(detalle.fila),
       objetos: detalle.objetos.map(aObjetoDominio),
       trabajos: detalle.trabajos.map(aTrabajoDominio),
+      materiales: detalle.materiales.map(aMaterialDominio),
       pagos: detalle.pagos.map(aPagoDominio),
       notas: detalle.notas.map(aNotaDominio),
     };

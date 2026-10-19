@@ -1,5 +1,6 @@
 import { PagoTipo, Prisma } from '@prisma/client';
 import { Monto } from '../../../shared/domain/monto';
+import { Material } from '../domain/material';
 import { Nota } from '../domain/nota';
 import { ObjetoRecibido } from '../domain/objeto-recibido';
 import { Pago, TipoPago } from '../domain/pago';
@@ -22,6 +23,16 @@ export const CAMPOS_TRABAJO = {
   objetoRecibidoId: true,
   descripcion: true,
   precio: true,
+  creadoEn: true,
+  actualizadoEn: true,
+} as const;
+
+export const CAMPOS_MATERIAL = {
+  id: true,
+  trabajoId: true,
+  nombre: true,
+  cantidad: true,
+  costo: true,
   creadoEn: true,
   actualizadoEn: true,
 } as const;
@@ -66,6 +77,18 @@ export function aTrabajoDominio(fila: {
   actualizadoEn: Date;
 }): Trabajo {
   return Trabajo.reconstituir({ ...fila, precio: fila.precio.toString() });
+}
+
+export function aMaterialDominio(fila: {
+  id: string;
+  trabajoId: string;
+  nombre: string;
+  cantidad: string | null;
+  costo: Prisma.Decimal | null;
+  creadoEn: Date;
+  actualizadoEn: Date;
+}): Material {
+  return Material.reconstituir({ ...fila, costo: fila.costo?.toString() ?? null });
 }
 
 export function aPagoDominio(fila: {

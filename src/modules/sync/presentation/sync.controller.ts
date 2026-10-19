@@ -21,7 +21,7 @@ export class SyncController {
       'hacia atrás, así que algunas filas llegan repetidas: con Last-Write-Wins aplicarlas dos ' +
       'veces da el mismo resultado, y es el precio de que no se pierda ninguna.\n\n' +
       'Las filas con `eliminado_en` viajan como cualquier otro cambio — son la señal para ' +
-      'borrar en local. `materiales` y `fotos` llegan vacías hasta Sprint 7.',
+      'borrar en local. `fotos` llega vacía hasta el bloque de R2.',
   })
   @ApiOkResponse({ type: SyncResponse })
   async obtenerCambios(@Query() query: SyncQuery): Promise<SyncResponse> {

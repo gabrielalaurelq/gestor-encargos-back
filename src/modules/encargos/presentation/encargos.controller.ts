@@ -35,15 +35,18 @@ import { ListarEncargosUseCase } from '../application/use-cases/listar-encargos.
 import { ObtenerEncargoUseCase } from '../application/use-cases/obtener-encargo.use-case';
 import { ReservarBloqueNumerosUseCase } from '../application/use-cases/reservar-bloque-numeros.use-case';
 import { ActualizarObjetoDto, CrearObjetoDto } from '../application/dto/crear-objeto.dto';
+import { CrearMaterialDto } from '../application/dto/crear-material.dto';
 import { CrearNotaDto } from '../application/dto/crear-nota.dto';
 import { CrearPagoDto } from '../application/dto/crear-pago.dto';
 import { ActualizarTrabajoDto, CrearTrabajoDto } from '../application/dto/crear-trabajo.dto';
 import { ActualizarObjetoUseCase } from '../application/use-cases/actualizar-objeto.use-case';
 import { ActualizarTrabajoUseCase } from '../application/use-cases/actualizar-trabajo.use-case';
+import { CrearMaterialUseCase } from '../application/use-cases/crear-material.use-case';
 import { CrearNotaUseCase } from '../application/use-cases/crear-nota.use-case';
 import { CrearObjetoUseCase } from '../application/use-cases/crear-objeto.use-case';
 import { CrearPagoUseCase } from '../application/use-cases/crear-pago.use-case';
 import { CrearTrabajoUseCase } from '../application/use-cases/crear-trabajo.use-case';
+import { EliminarMaterialUseCase } from '../application/use-cases/eliminar-material.use-case';
 import { EliminarObjetoUseCase } from '../application/use-cases/eliminar-objeto.use-case';
 import { EliminarPagoUseCase } from '../application/use-cases/eliminar-pago.use-case';
 import { EliminarTrabajoUseCase } from '../application/use-cases/eliminar-trabajo.use-case';
@@ -57,20 +60,22 @@ import {
 } from './encargo.response';
 import {
   DerivadosEncargoResponse,
+  MaterialResponse,
   NotaResponse,
   ObjetoResponse,
   PagoResponse,
   TrabajoResponse,
   aDerivadosResponse,
+  aMaterialResponse,
   aNotaResponse,
   aObjetoResponse,
   aPagoResponse,
   aTrabajoResponse,
 } from './hijos.response';
 
-// Doc 5, Bloque 2 — agregado raíz. Los hijos (objetos, trabajos, pagos, notas,
-// fotos) cuelgan de estas rutas y llegan en Sprint 3-4, igual que el detalle
-// anidado de `GET /encargos/{id}`.
+// Doc 5, Bloque 2 — agregado raíz. Los hijos (objetos, trabajos con sus
+// materiales, pagos, notas y fotos) cuelgan de estas rutas: nunca se escriben
+// de forma aislada (Doc 2, regla de consistencia).
 @ApiTags('encargos')
 @ApiBearerAuth()
 @Controller('encargos')
@@ -88,6 +93,8 @@ export class EncargosController {
     private readonly crearTrabajo: CrearTrabajoUseCase,
     private readonly actualizarTrabajo: ActualizarTrabajoUseCase,
     private readonly eliminarTrabajo: EliminarTrabajoUseCase,
+    private readonly crearMaterial: CrearMaterialUseCase,
+    private readonly eliminarMaterial: EliminarMaterialUseCase,
     private readonly crearPago: CrearPagoUseCase,
     private readonly eliminarPago: EliminarPagoUseCase,
     private readonly crearNota: CrearNotaUseCase,
@@ -155,7 +162,7 @@ export class EncargosController {
   @Get(':id')
   @ApiOperation({
     summary: 'Detalle de un encargo con sus hijos anidados.',
-    description: '`fotos` llega en Sprint 7, junto con `materiales` (Doc 11).',
+    description: 'Cada trabajo trae sus `materiales`. `fotos` llega con el bloque de R2.',
   })
   @ApiOkResponse({ type: EncargoDetalleResponse })
   @ApiResponse({ status: 404, description: 'NO_ENCONTRADO — no existe o es de otro negocio.' })
@@ -308,6 +315,48 @@ export class EncargosController {
     @Param('trabajoId', ParseUUIDPipe) trabajoId: string,
   ): Promise<DerivadosEncargoResponse> {
     return aDerivadosResponse(await this.eliminarTrabajo.execute(id, trabajoId));
+  }
+
+  @Post(':id/trabajos/:trabajoId/materiales')
+  @ApiOperation({
+    summary: 'Agrega un material a un trabajo.',
+    description:
+      'Solo informativo (PRD 15): el costo no entra en `precio_total`, así que se devuelve el ' +
+      'material sin los derivados del encargo — igual que las notas. Idempotente respecto del ' +
+      '`id` del dispositivo.',
+  })
+  @ApiCreatedResponse({ type: MaterialResponse })
+  @ApiOkResponse({ type: MaterialResponse, description: 'El id ya existía.' })
+  @ApiResponse({ status: 404, description: 'NO_ENCONTRADO — el encargo o el trabajo.' })
+  @ApiResponse({
+    status: 422,
+    description: 'MATERIAL_NOMBRE_VACIO | MATERIAL_COSTO_INVALIDO | MONTO_INVALIDO',
+  })
+  async crearMaterialDelTrabajo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('trabajoId', ParseUUIDPipe) trabajoId: string,
+    @Body() dto: CrearMaterialDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<MaterialResponse> {
+    const { hijo, creado } = await this.crearMaterial.execute(id, trabajoId, dto);
+    res.status(creado ? 201 : 200);
+    return aMaterialResponse(hijo);
+  }
+
+  @Delete(':id/trabajos/:trabajoId/materiales/:materialId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Elimina un material (soft delete).',
+    description: 'Sin cuerpo: no cambia ningún campo calculado del encargo.',
+  })
+  @ApiResponse({ status: 204, description: 'Eliminado.' })
+  @ApiResponse({ status: 404, description: 'NO_ENCONTRADO' })
+  async eliminarMaterialDelTrabajo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('trabajoId', ParseUUIDPipe) trabajoId: string,
+    @Param('materialId', ParseUUIDPipe) materialId: string,
+  ): Promise<void> {
+    await this.eliminarMaterial.execute(id, trabajoId, materialId);
   }
 
   @Post(':id/pagos')

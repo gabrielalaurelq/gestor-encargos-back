@@ -2,17 +2,20 @@ import { PagoTipo, Prisma } from '@prisma/client';
 import { Monto } from '../../../shared/domain/monto';
 import { RecursoDuplicadoError } from '../../../shared/domain/recurso-duplicado.error';
 import { TransaccionNegocio } from '../../../shared/infrastructure/prisma/prisma-negocio';
+import { Material } from '../domain/material';
 import { Nota } from '../domain/nota';
 import { ObjetoRecibido } from '../domain/objeto-recibido';
 import { Pago } from '../domain/pago';
 import { EscriturasHijos } from '../domain/repositories/encargo.repository';
 import { ServicioDelCatalogo, Trabajo } from '../domain/trabajo';
 import {
+  CAMPOS_MATERIAL,
   CAMPOS_NOTA,
   CAMPOS_OBJETO,
   CAMPOS_PAGO,
   CAMPOS_TRABAJO,
   VIVOS,
+  aMaterialDominio,
   aNotaDominio,
   aObjetoDominio,
   aPagoDominio,
@@ -66,8 +69,28 @@ export class PrismaEscriturasHijos implements EscriturasHijos {
   }
 
   async eliminarObjeto(id: string): Promise<boolean> {
-    const { count } = await this.tx.objetoRecibido.updateMany(this.criterioVivo(id));
-    return count > 0;
+    const borrado = this.criterioVivo(id);
+    const { count } = await this.tx.objetoRecibido.updateMany(borrado);
+    if (count === 0) {
+      return false;
+    }
+
+    // Doc 4: `fotos.objeto_recibido_id` es CASCADE y
+    // `trabajos.objeto_recibido_id` es SET NULL. Con borrado lógico la base no
+    // dispara ninguno de los dos hasta la purga, 90 días después, así que se
+    // reproducen acá. Solo sobre filas vivas: tocar un tombstone movería su
+    // `actualizado_en` y lo reenviaría por sync sin motivo.
+    await Promise.all([
+      this.tx.foto.updateMany({
+        where: { objetoRecibidoId: id, encargoId: this.encargoId, ...VIVOS },
+        data: borrado.data,
+      }),
+      this.tx.trabajo.updateMany({
+        where: { objetoRecibidoId: id, encargoId: this.encargoId, ...VIVOS },
+        data: { objetoRecibidoId: null },
+      }),
+    ]);
+    return true;
   }
 
   async buscarTrabajo(id: string): Promise<Trabajo | null> {
@@ -109,7 +132,53 @@ export class PrismaEscriturasHijos implements EscriturasHijos {
   }
 
   async eliminarTrabajo(id: string): Promise<boolean> {
-    const { count } = await this.tx.trabajo.updateMany(this.criterioVivo(id));
+    const borrado = this.criterioVivo(id);
+    const { count } = await this.tx.trabajo.updateMany(borrado);
+    if (count === 0) {
+      return false;
+    }
+
+    // Doc 4: `materiales.trabajo_id` es CASCADE. Misma marca de tiempo que el
+    // trabajo, para que padre e hijos lleguen juntos en el mismo delta.
+    await this.tx.material.updateMany({
+      where: { trabajoId: id, ...VIVOS },
+      data: borrado.data,
+    });
+    return true;
+  }
+
+  async buscarMaterial(trabajoId: string, id: string): Promise<Material | null> {
+    const fila = await this.tx.material.findFirst({
+      where: { id, ...this.deTrabajoVivo(trabajoId) },
+      select: CAMPOS_MATERIAL,
+    });
+    return fila ? aMaterialDominio(fila) : null;
+  }
+
+  async crearMaterial(material: Material): Promise<Material> {
+    return this.conConflicto('material', material.id, async () => {
+      const fila = await this.tx.material.create({
+        // Sin `encargoId`: `materiales` no tiene esa columna (Doc 4), cuelga
+        // del trabajo. Por eso no pasa por `conPadre()`.
+        data: {
+          id: material.id,
+          trabajoId: material.trabajoId,
+          negocioId: this.negocioId,
+          nombre: material.nombre,
+          cantidad: material.cantidad,
+          costo: material.costo?.texto ?? null,
+        },
+        select: CAMPOS_MATERIAL,
+      });
+      return aMaterialDominio(fila);
+    });
+  }
+
+  async eliminarMaterial(trabajoId: string, id: string): Promise<boolean> {
+    const { count } = await this.tx.material.updateMany({
+      where: { id, ...this.deTrabajoVivo(trabajoId) },
+      data: { eliminadoEn: new Date() },
+    });
     return count > 0;
   }
 
@@ -184,6 +253,19 @@ export class PrismaEscriturasHijos implements EscriturasHijos {
       select: { activo: true },
     });
     return origen?.activo === true;
+  }
+
+  /**
+   * Material vivo cuyo trabajo también está vivo y pertenece a este encargo.
+   * `materiales` no tiene `encargo_id`, así que la pertenencia al agregado se
+   * comprueba a través de la relación con el trabajo.
+   */
+  private deTrabajoVivo(trabajoId: string) {
+    return {
+      trabajoId,
+      ...VIVOS,
+      trabajo: { encargoId: this.encargoId, ...VIVOS },
+    };
   }
 
   /** Añade los dos campos que el hijo nunca trae del dominio. */

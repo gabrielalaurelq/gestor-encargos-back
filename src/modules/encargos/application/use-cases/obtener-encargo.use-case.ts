@@ -3,7 +3,7 @@ import { DetalleEncargo, EncargoRepository } from '../../domain/repositories/enc
 
 /**
  * `GET /encargos/{id}` (Doc 5, Bloque 2): detalle completo con los hijos
- * anidados. Fotos llega en Sprint 7 (Doc 11), junto con Materiales.
+ * anidados (materiales dentro de cada trabajo). Fotos llega con el bloque R2.
  *
  * Un id de otro negocio también termina en 404, sin comprobarlo: el filtro de
  * `PrismaNegocio` y RLS hacen que la fila no exista para esta sesión. Es lo que

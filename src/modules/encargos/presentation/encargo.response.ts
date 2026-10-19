@@ -7,7 +7,8 @@ import {
   NotaResponse,
   ObjetoResponse,
   PagoResponse,
-  TrabajoResponse,
+  TrabajoDetalleResponse,
+  aMaterialResponse,
   aNotaResponse,
   aObjetoResponse,
   aPagoResponse,
@@ -130,8 +131,8 @@ export class EncargoDetalleResponse extends EncargoResponse {
   @ApiProperty({ isArray: true, type: ObjetoResponse })
   objetos!: ObjetoResponse[];
 
-  @ApiProperty({ isArray: true, type: TrabajoResponse })
-  trabajos!: TrabajoResponse[];
+  @ApiProperty({ isArray: true, type: TrabajoDetalleResponse })
+  trabajos!: TrabajoDetalleResponse[];
 
   @ApiProperty({ isArray: true, type: PagoResponse })
   pagos!: PagoResponse[];
@@ -144,7 +145,12 @@ export function aEncargoDetalleResponse(detalle: DetalleEncargo): EncargoDetalle
   return {
     ...aEncargoResponse(detalle.encargo),
     objetos: detalle.objetos.map(aObjetoResponse),
-    trabajos: detalle.trabajos.map(aTrabajoResponse),
+    trabajos: detalle.trabajos.map((trabajo) => ({
+      ...aTrabajoResponse(trabajo),
+      materiales: detalle.materiales
+        .filter((material) => material.trabajoId === trabajo.id)
+        .map(aMaterialResponse),
+    })),
     pagos: detalle.pagos.map(aPagoResponse),
     notas: detalle.notas.map(aNotaResponse),
   };
