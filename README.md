@@ -2,7 +2,7 @@
 
 **Estado:** 🔵 En desarrollo — Sprint 0 / Fase 2 (autenticación y multitenancy), ver `docs/11-roadmap.md`
 
-Documentos base, todos aprobados: Doc 3 (Arquitectura), Doc 4 (Base de Datos), Doc 5 (API, **v1.3** — enmendado desde el backend), Doc 8 (Backend).
+Documentos base, todos aprobados: Doc 3 (Arquitectura), Doc 4 (Base de Datos), Doc 5 (API, **v1.4**) y Doc 8 (Backend, **v1.1**) — ambos enmendados desde el código.
 
 ## Hecho
 
@@ -232,8 +232,7 @@ Validación (`resolverFechaDeHecho` en `shared/domain/fecha.ts`): hasta **1 día
 **Lo que se acepta a cambio:** un teléfono con el reloj mal puesto producirá fechas malas y descuadrará la Caja diaria del negociante. La tolerancia de 1 día acota el futuro, pero no lo elimina. Y la fecha pasa a ser falsificable por el dueño del negocio sobre sus propios datos — sin riesgo entre negocios (RLS y el `negocioId` de la sesión lo impiden); falsear tus propias fechas es un problema de tu contabilidad, no de seguridad. No se puede acotar el pasado contra la creación del encargo, que sería lo natural, porque `creado_en` es del servidor: un encargo creado sin conexión tendría `creado_en` **posterior** a la fecha real de su propio pago.
 - Sprint 5: Dashboard, Dictado por voz (STT), WhatsApp nivel gratuito.
 - Sprint 7: Materiales y Fotografías (requiere R2 + presigned URLs).
-- **Enmendar el Doc 8** con el desvío de `mutarAgregado` respecto del `save()` monolítico del Bloque 1.
-- Enmendar el Doc 5 con: el margen de solape y el `since` inclusivo de `/sync`, el `409 FCM_TOKEN_EN_USO`, y los códigos nuevos `OBJETO_DESCRIPCION_VACIA`, `TRABAJO_DESCRIPCION_VACIA`, `TRABAJO_PRECIO_INVALIDO`, `TRABAJO_ORIGEN_AMBIGUO`, `SERVICIO_NO_DISPONIBLE`, `OBJETO_NO_EN_ENCARGO`, `ORIGEN_PAGO_INVALIDO`, `NOTA_TEXTO_VACIO`.
+- **Documentos al día:** el Doc 5 está en **v1.4** y el Doc 8 en **v1.1**, ambos enmendados desde el código (`docs/`, sin commitear). Cada sprint nuevo probablemente aporte otra enmienda: conviene hacerlas al cerrar el sprint, no al final, porque el Doc 5 es el contrato contra el que se escribirá la app Flutter.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).
 
 ## Códigos de error no de negocio
