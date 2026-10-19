@@ -5,6 +5,7 @@ import {
   PrismaNegocio,
   TransaccionNegocio,
 } from '../../../shared/infrastructure/prisma/prisma-negocio';
+import { escaparLike } from '../../../shared/infrastructure/prisma/escapar-like';
 import { PaginaResultado } from '../../../shared/presentation/paginacion';
 import { Encargo, SumasEncargo } from '../domain/encargo';
 import { EncargoNumeroEnUsoError } from '../domain/errores';
@@ -274,6 +275,15 @@ export class PrismaEncargoRepository extends EncargoRepository {
     }
     if (filtro.clienteId) {
       where.clienteId = filtro.clienteId;
+    }
+    if (filtro.q) {
+      // `contains` → `ILIKE '%texto%'`, que usa los índices GIN `gin_trgm_ops`
+      // de la migración inicial sobre estas dos columnas (Doc 4).
+      const texto = escaparLike(filtro.q);
+      where.OR = [
+        { descripcion: { contains: texto, mode: 'insensitive' } },
+        { ubicacionFisica: { contains: texto, mode: 'insensitive' } },
+      ];
     }
     if (filtro.fechaDesde || filtro.fechaHasta) {
       where.fechaEntregaAcordada = {

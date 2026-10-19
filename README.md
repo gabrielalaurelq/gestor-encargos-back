@@ -244,6 +244,19 @@ Con esto **el Bloque 2 del Doc 5 queda completo**, salvo Materiales y Fotos (Spr
 
 El tercer caso **no lo había señalado al proponer la cascada**: lo encontré al leer la tabla del Doc 4 para implementarla. Sale del mismo principio. Solo se tocan filas vivas: re-marcar un tombstone movería su `actualizado_en` y lo reenviaría por sync sin motivo (el e2e lo comprueba).
 
+### Búsqueda global — `GET /buscar?q=` (`src/modules/busqueda/`)
+
+PRD módulo 16, definido en el Doc 5 Bloque 4. Módulo propio de solo lectura, como `sync`: sin capa `domain/`. **No tiene repositorio propio**: usa `ClienteRepository.listar({q})` —el mismo criterio de coincidencia que `GET /clientes?q=`— y un filtro `q` nuevo en `EncargoRepository.listar` sobre `descripcion` y `ubicacion_fisica`, ambos sobre los índices `gin_trgm_ops` de la migración inicial.
+
+| Decisión | Elección | Motivo |
+|---|---|---|
+| Forma | `{clientes: [...], encargos: [...]}` con las mismas representaciones que los listados | Tocar un resultado abre su detalle (PRD 16); la app no debería conocer una tercera forma de cada recurso. |
+| Tope | 20 por grupo, sin paginar | El contrato no pagina. La búsqueda "en tiempo real" la hace la app sobre Drift; esto es el respaldo en línea. |
+| Estado | No filtra: entregados y cancelados aparecen | PRD 16, casos extremos (Caso 8, incluye historial). Orden: más recientes primero. |
+| Mínimo de caracteres | Ninguno; `q` vacío o solo espacios → `400` | PRD 16: "una letra se permite igual". |
+
+**Bug encontrado por el e2e, presente desde Sprint 1: Prisma no escapa los comodines de `LIKE`.** `contains: '%'` se traduce a `ILIKE '%%%'` y devolvía todas las filas; `_` coincidía con cualquier carácter (`Ana_García` encontraba a "Ana García"). Afectaba también a `GET /clientes?q=`. `shared/infrastructure/prisma/escapar-like.ts` escapa `\`, `%` y `_` con barra invertida —el escape por defecto de `ILIKE` en Postgres— y se aplica en los dos repositorios. No era un problema de seguridad (el valor viaja como parámetro, y filtro + RLS acotan al tenant), sino de exactitud. **Regla para cualquier `contains`/`startsWith` futuro: pasar siempre el texto por `escaparLike()`.**
+
 ## Pendiente
 
 ### Fechas de hecho: las pone el dispositivo
@@ -269,7 +282,7 @@ Validación (`resolverFechaDeHecho` en `shared/domain/fecha.ts`): hasta **1 día
 
 **Lo que se acepta a cambio:** un teléfono con el reloj mal puesto producirá fechas malas y descuadrará la Caja diaria del negociante. La tolerancia de 1 día acota el futuro, pero no lo elimina. Y la fecha pasa a ser falsificable por el dueño del negocio sobre sus propios datos — sin riesgo entre negocios (RLS y el `negocioId` de la sesión lo impiden); falsear tus propias fechas es un problema de tu contabilidad, no de seguridad. No se puede acotar el pasado contra la creación del encargo, que sería lo natural, porque `creado_en` es del servidor: un encargo creado sin conexión tendría `creado_en` **posterior** a la fecha real de su propio pago.
 - Sprint 5: Dashboard, Dictado por voz (STT), WhatsApp nivel gratuito.
-- **Orden acordado para cerrar el backend del MVP (2026-10-19):** ~~A. historial del cliente~~ → ~~B. Materiales~~ → C. `GET /buscar` → F. `PurgaSoftDeleteJob` + `RevisarVencimientosPlanJob` → D. Fotos (R2 + URLs prefirmadas) → E. `NotificacionesService` (FCM) + `EvaluarRecordatoriosJob`.
+- **Orden acordado para cerrar el backend del MVP (2026-10-19):** ~~A. historial del cliente~~ → ~~B. Materiales~~ → ~~C. `GET /buscar`~~ → F. `PurgaSoftDeleteJob` + `RevisarVencimientosPlanJob` → D. Fotos (R2 + URLs prefirmadas) → E. `NotificacionesService` (FCM) + `EvaluarRecordatoriosJob`.
 - **Caja diaria, Balance de Carga y Calendario no tienen endpoint propio, por diseño** (confirmado con el usuario): el Doc 5 no los define y su Bloque 4 explica por qué — la app es offline-first y las calcula sobre Drift con lo que trae `/sync`. Un endpoint de servidor duplicaría la lógica y daría cifras distintas a las locales sin conexión.
 - **Documentos al día:** el Doc 5 está en **v1.4** y el Doc 8 en **v1.1**, ambos enmendados desde el código (`docs/`, sin commitear). Cada sprint nuevo probablemente aporte otra enmienda: conviene hacerlas al cerrar el sprint, no al final, porque el Doc 5 es el contrato contra el que se escribirá la app Flutter.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).

@@ -8,6 +8,7 @@ import { configurarLogger } from './config/logger.config';
 import { LIMITE_GENERAL } from './config/rate-limit.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { AuthGuard } from './modules/auth/presentation/guards/auth.guard';
+import { BusquedaModule } from './modules/busqueda/busqueda.module';
 import { ClientesModule } from './modules/clientes/clientes.module';
 import { EncargosModule } from './modules/encargos/encargos.module';
 import { NegocioModule } from './modules/negocio/negocio.module';
@@ -23,7 +24,8 @@ import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-ne
 // APP_GUARD global. Doc 5, Bloque 4: rate limiting con ThrottlerNegocioGuard.
 // Los dos guards se registran acá, en este orden, porque el throttler cuenta
 // por negocio y necesita la sesión que deja el AuthGuard.
-// Módulos: negocio propio, clientes, servicios, encargos y el pull de sincronización.
+// Módulos: negocio propio, clientes, servicios, encargos, búsqueda global y el
+// pull de sincronización.
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -44,6 +46,7 @@ import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-ne
     ClientesModule,
     ServiciosModule,
     EncargosModule,
+    BusquedaModule,
     SyncModule,
   ],
   providers: [

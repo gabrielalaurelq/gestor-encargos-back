@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { RecursoDuplicadoError } from '../../../shared/domain/recurso-duplicado.error';
+import { escaparLike } from '../../../shared/infrastructure/prisma/escapar-like';
 import { PrismaNegocio } from '../../../shared/infrastructure/prisma/prisma-negocio';
 import { PaginaResultado } from '../../../shared/presentation/paginacion';
 import { Cliente } from '../domain/cliente';
@@ -119,8 +120,9 @@ export class PrismaClienteRepository extends ClienteRepository {
     if (!q) {
       return {};
     }
+    const texto = escaparLike(q);
     return {
-      OR: [{ nombre: { contains: q, mode: 'insensitive' } }, { telefono: { contains: q } }],
+      OR: [{ nombre: { contains: texto, mode: 'insensitive' } }, { telefono: { contains: texto } }],
     };
   }
 }
