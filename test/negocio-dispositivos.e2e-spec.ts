@@ -81,6 +81,8 @@ describe('Negocio y dispositivos (e2e)', () => {
         nombre_negocio: null,
         plan: 'FREE',
         plan_vence_en: null,
+        // PRD 13: funciona por defecto, sin configuración inicial obligatoria.
+        dias_aviso_no_recoge: 2,
         creado_en: expect.any(String),
         actualizado_en: expect.any(String),
       });
@@ -129,6 +131,23 @@ describe('Negocio y dispositivos (e2e)', () => {
       const res = await conA(http().patch('/api/v1/negocio')).send({ nombre_negocio: null });
 
       expect(res.body.nombre_negocio).toBeNull();
+    });
+
+    it('cambia el umbral de "Cliente no recoge" sin tocar el nombre', async () => {
+      await conA(http().patch('/api/v1/negocio')).send({ nombre_negocio: 'Taller' });
+
+      const res = await conA(http().patch('/api/v1/negocio')).send({ dias_aviso_no_recoge: 5 });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ nombre_negocio: 'Taller', dias_aviso_no_recoge: 5 });
+    });
+
+    it.each([[0], [31], [2.5], ['3']])('umbral %j → 400', async (valor) => {
+      const res = await conA(http().patch('/api/v1/negocio')).send({
+        dias_aviso_no_recoge: valor,
+      });
+
+      expect(res.status).toBe(400);
     });
 
     it('un cuerpo vacío no cambia nada ni mueve actualizado_en', async () => {

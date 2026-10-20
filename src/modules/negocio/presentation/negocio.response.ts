@@ -23,6 +23,9 @@ export class NegocioResponse {
   })
   plan_vence_en!: string | null;
 
+  @ApiProperty({ example: 2, description: 'Umbral del aviso "Cliente no recoge" (PRD 13).' })
+  dias_aviso_no_recoge!: number;
+
   @ApiProperty({ format: 'date-time' })
   creado_en!: string;
 
@@ -39,6 +42,7 @@ export function aNegocioResponse(negocio: NegocioPropio): NegocioResponse {
     nombre_negocio: negocio.nombreNegocio,
     plan: negocio.plan,
     plan_vence_en: negocio.planVenceEn?.toISOString() ?? null,
+    dias_aviso_no_recoge: negocio.diasAvisoNoRecoge,
     creado_en: negocio.creadoEn.toISOString(),
     actualizado_en: negocio.actualizadoEn.toISOString(),
   };

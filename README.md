@@ -297,6 +297,27 @@ PRD módulo 16, definido en el Doc 5 Bloque 4. Módulo propio de solo lectura, c
 
 **Riesgo aceptado:** una URL de `PUT` firmada no limita el tamaño del archivo (eso solo lo permite un POST de formulario con `content-length-range`). Una app modificada podría subir un archivo enorme a la ruta de su propio negocio. Afecta al costo de almacenamiento, no a otros negocios; se revisa si aparece.
 
+### Recordatorios push con FCM (PRD 13, `src/modules/recordatorios/`)
+
+`EvaluarRecordatoriosJob`, diario a las 9:00 de Lima (Doc 8 Bloque 3). Evalúa las reglas 6-9 del Doc 2 y manda **una notificación por tipo** a todos los dispositivos del negocio.
+
+- **Las reglas son funciones puras** (`domain/reglas-recordatorio.ts`, `redactar-aviso.ts`): reciben encargos y "hoy" y devuelven qué avisar. El caso de uso solo orquesta: repositorio → reglas → `Notificador`.
+- **Puerto `Notificador`** en `shared/application/`, implementado por `FcmNotificador` (`sendEachForMulticast`, lotes de 500). Solo **informa** qué tokens están muertos; soltarlos (`fcm_token = null`, sin tocar la sesión, Doc 8) lo hace el caso de uso, que tiene el negocio. Un token muerto no se reintenta en el siguiente aviso del mismo día.
+- **Una sola app de Firebase** (`shared/infrastructure/firebase/firebase-app.ts`): Firebase no deja inicializar dos veces la misma, y el login ya la usaba. `auth` se refactorizó para usarla.
+- Como los jobs de mantenimiento: sin sesión, negocio por negocio con `enNegocio()` y RLS activo; un negocio que falla no detiene a los demás. **Con varias réplicas sí importa**: cada una mandaría sus propias notificaciones.
+
+| Decisión | Elección | Motivo |
+|---|---|---|
+| Encargos **PAUSADOS** | No avisan de nada | Elegido por el usuario: pausar es una decisión consciente, y un "atrasado" diario sobre algo pausado a propósito es ruido que hace ignorar las alertas reales. Siguen en Balance y Calendario (la app). |
+| Umbral "Cliente no recoge" | Columna nueva **`negocios.dias_aviso_no_recoge`** (2 por defecto, `CHECK` 1..30), expuesta en `GET`/`PATCH /negocio` | **Hueco de los documentos:** el PRD 13 lo pide configurable en Ajustes, pero ni el Doc 4 tenía dónde guardarlo ni el Doc 5 un campo para editarlo. Como lo evalúa el servidor, tiene que vivir en la base. Fuera de rango → `400`. |
+| Repetición | Cada día mientras la condición siga, sin guardar qué se avisó | PRD 13: "deja de enviarse en cuanto se marca LISTO". |
+| Agrupado | Uno: nombra el encargo (`#12 · Vestido rojo — Ana García`) y `datos.encargo_id` lo abre. Varios: "Tienes 3 trabajos atrasados", sin id (abre la lista) | Doc 2 regla 9 / PRD 13. Sin número todavía (Hi/Lo agotado offline) no se muestra "#null". |
+| "Entrega hoy/mañana" | Sobre la fecha **acordada**, incluidos los LISTO | Regla 7: reprogramar recalcula. Que esté terminado no quita que el cliente venga hoy. |
+| Resumen de saldos | Los **lunes**: entregados con saldo > 0, con el total en soles | PRD 13: "ej. semanal". Un saldo a favor (negativo) no avisa. |
+| FCM caído | No se reintenta | Mañana se repite igual, y el Dashboard muestra lo mismo (redundancia intencional, PRD 13). |
+
+La migración `negocio_dias_aviso_no_recoge` se generó con `--create-only` y se revisó antes de aplicarla (lección del bloque anterior); el `CHECK` va escrito a mano porque Prisma no los gestiona.
+
 ## Pendiente
 
 ### Fechas de hecho: las pone el dispositivo
@@ -322,7 +343,7 @@ Validación (`resolverFechaDeHecho` en `shared/domain/fecha.ts`): hasta **1 día
 
 **Lo que se acepta a cambio:** un teléfono con el reloj mal puesto producirá fechas malas y descuadrará la Caja diaria del negociante. La tolerancia de 1 día acota el futuro, pero no lo elimina. Y la fecha pasa a ser falsificable por el dueño del negocio sobre sus propios datos — sin riesgo entre negocios (RLS y el `negocioId` de la sesión lo impiden); falsear tus propias fechas es un problema de tu contabilidad, no de seguridad. No se puede acotar el pasado contra la creación del encargo, que sería lo natural, porque `creado_en` es del servidor: un encargo creado sin conexión tendría `creado_en` **posterior** a la fecha real de su propio pago.
 - Sprint 5: Dashboard, Dictado por voz (STT), WhatsApp nivel gratuito.
-- **Orden acordado para cerrar el backend del MVP (2026-10-19):** ~~A. historial del cliente~~ → ~~B. Materiales~~ → ~~C. `GET /buscar`~~ → ~~F. `PurgaSoftDeleteJob` + `RevisarVencimientosPlanJob`~~ → ~~D. Fotos (R2 + URLs prefirmadas)~~ → E. `NotificacionesService` (FCM) + `EvaluarRecordatoriosJob`.
+- **Orden acordado para cerrar el backend del MVP (2026-10-19):** ~~A. historial del cliente~~ → ~~B. Materiales~~ → ~~C. `GET /buscar`~~ → ~~F. `PurgaSoftDeleteJob` + `RevisarVencimientosPlanJob`~~ → ~~D. Fotos (R2 + URLs prefirmadas)~~ → ~~E. `NotificacionesService` (FCM) + `EvaluarRecordatoriosJob`~~. **Backend del MVP completo respecto del Doc 5.**
 - **Caja diaria, Balance de Carga y Calendario no tienen endpoint propio, por diseño** (confirmado con el usuario): el Doc 5 no los define y su Bloque 4 explica por qué — la app es offline-first y las calcula sobre Drift con lo que trae `/sync`. Un endpoint de servidor duplicaría la lógica y daría cifras distintas a las locales sin conexión.
 - **Documentos al día:** el Doc 5 está en **v1.4** y el Doc 8 en **v1.1**, ambos enmendados desde el código (`docs/`, sin commitear). Cada sprint nuevo probablemente aporte otra enmienda: conviene hacerlas al cerrar el sprint, no al final, porque el Doc 5 es el contrato contra el que se escribirá la app Flutter.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).

@@ -27,8 +27,10 @@ export class NegocioController {
 
   @Patch()
   @ApiOperation({
-    summary: 'Edita el nombre del negocio.',
-    description: 'Único campo editable. `null` o cadena vacía lo deja sin nombre.',
+    summary: 'Edita el nombre del negocio o el umbral de "Cliente no recoge".',
+    description:
+      'Parcial. `nombre_negocio` en `null` o vacío lo deja sin nombre; ' +
+      '`dias_aviso_no_recoge` entre 1 y 30.',
   })
   @ApiOkResponse({ type: NegocioResponse })
   async actualizarNegocio(

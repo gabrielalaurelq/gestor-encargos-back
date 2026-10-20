@@ -1,12 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
-import { NegocioPropio, NegocioRepository } from '../application/ports/negocio.repository';
+import {
+  CambiosNegocio,
+  NegocioPropio,
+  NegocioRepository,
+} from '../application/ports/negocio.repository';
 
 const CAMPOS = {
   id: true,
   nombreNegocio: true,
   plan: true,
   planVenceEn: true,
+  diasAvisoNoRecoge: true,
   creadoEn: true,
   actualizadoEn: true,
 } as const;
@@ -29,11 +34,7 @@ export class PrismaNegocioRepository extends NegocioRepository {
     return this.prisma.negocio.findUnique({ where: { id: negocioId }, select: CAMPOS });
   }
 
-  actualizarNombre(negocioId: string, nombreNegocio: string | null): Promise<NegocioPropio> {
-    return this.prisma.negocio.update({
-      where: { id: negocioId },
-      data: { nombreNegocio },
-      select: CAMPOS,
-    });
+  actualizar(negocioId: string, cambios: CambiosNegocio): Promise<NegocioPropio> {
+    return this.prisma.negocio.update({ where: { id: negocioId }, data: cambios, select: CAMPOS });
   }
 }

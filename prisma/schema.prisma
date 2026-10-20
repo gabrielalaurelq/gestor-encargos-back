@@ -38,6 +38,9 @@ model Negocio {
   siguienteBloqueNumeros Int         @default(1) @map("siguiente_bloque_numeros")
   plan                   NegocioPlan @default(FREE)
   planVenceEn            DateTime?   @map("plan_vence_en")
+  /// Umbral del aviso "Cliente no recoge" (PRD 13): días desde `fecha_listo`.
+  /// Configurable en Ajustes; 2 por defecto. CHECK 1..30 en la migración.
+  diasAvisoNoRecoge      Int         @default(2) @map("dias_aviso_no_recoge")
   creadoEn               DateTime    @default(now()) @map("creado_en")
   actualizadoEn          DateTime    @updatedAt @map("actualizado_en")
 

@@ -3,8 +3,15 @@ export interface NegocioPropio {
   nombreNegocio: string | null;
   plan: string;
   planVenceEn: Date | null;
+  diasAvisoNoRecoge: number;
   creadoEn: Date;
   actualizadoEn: Date;
+}
+
+export interface CambiosNegocio {
+  /** `null` lo deja sin nombre (Doc 5, Bloque 1). */
+  nombreNegocio?: string | null;
+  diasAvisoNoRecoge?: number;
 }
 
 /**
@@ -19,9 +26,6 @@ export interface NegocioPropio {
 export abstract class NegocioRepository {
   abstract buscarPorId(negocioId: string): Promise<NegocioPropio | null>;
 
-  /** `nombreNegocio` en `null` lo deja sin nombre (Doc 5, Bloque 1). */
-  abstract actualizarNombre(
-    negocioId: string,
-    nombreNegocio: string | null,
-  ): Promise<NegocioPropio>;
+  /** Solo escribe los campos presentes en `cambios`. */
+  abstract actualizar(negocioId: string, cambios: CambiosNegocio): Promise<NegocioPropio>;
 }
