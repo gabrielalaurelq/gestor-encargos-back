@@ -345,7 +345,7 @@ Validación (`resolverFechaDeHecho` en `shared/domain/fecha.ts`): hasta **1 día
 - Sprint 5: Dashboard, Dictado por voz (STT), WhatsApp nivel gratuito.
 - **Orden acordado para cerrar el backend del MVP (2026-10-19):** ~~A. historial del cliente~~ → ~~B. Materiales~~ → ~~C. `GET /buscar`~~ → ~~F. `PurgaSoftDeleteJob` + `RevisarVencimientosPlanJob`~~ → ~~D. Fotos (R2 + URLs prefirmadas)~~ → ~~E. `NotificacionesService` (FCM) + `EvaluarRecordatoriosJob`~~. **Backend del MVP completo respecto del Doc 5.**
 - **Caja diaria, Balance de Carga y Calendario no tienen endpoint propio, por diseño** (confirmado con el usuario): el Doc 5 no los define y su Bloque 4 explica por qué — la app es offline-first y las calcula sobre Drift con lo que trae `/sync`. Un endpoint de servidor duplicaría la lógica y daría cifras distintas a las locales sin conexión.
-- **Documentos al día:** el Doc 5 está en **v1.4** y el Doc 8 en **v1.1**, ambos enmendados desde el código (`docs/`, sin commitear). Cada sprint nuevo probablemente aporte otra enmienda: conviene hacerlas al cerrar el sprint, no al final, porque el Doc 5 es el contrato contra el que se escribirá la app Flutter.
+- **Documentos al día:** Doc 4 en **v1.5**, Doc 5 en **v1.5** y Doc 8 en **v1.2**, enmendados al cerrar el backend del MVP y commiteados en `docs/` (`cc24653`). El Doc 5 es el contrato contra el que se escribirá la app Flutter.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).
 
 ## Códigos de error no de negocio
