@@ -1,5 +1,6 @@
 import { PagoTipo, Prisma } from '@prisma/client';
 import { Monto } from '../../../shared/domain/monto';
+import { Foto } from '../domain/foto';
 import { Material } from '../domain/material';
 import { Nota } from '../domain/nota';
 import { ObjetoRecibido } from '../domain/objeto-recibido';
@@ -33,6 +34,14 @@ export const CAMPOS_MATERIAL = {
   nombre: true,
   cantidad: true,
   costo: true,
+  creadoEn: true,
+  actualizadoEn: true,
+} as const;
+
+export const CAMPOS_FOTO = {
+  id: true,
+  objetoRecibidoId: true,
+  clave: true,
   creadoEn: true,
   actualizadoEn: true,
 } as const;
@@ -89,6 +98,16 @@ export function aMaterialDominio(fila: {
   actualizadoEn: Date;
 }): Material {
   return Material.reconstituir({ ...fila, costo: fila.costo?.toString() ?? null });
+}
+
+export function aFotoDominio(fila: {
+  id: string;
+  objetoRecibidoId: string | null;
+  clave: string;
+  creadoEn: Date;
+  actualizadoEn: Date;
+}): Foto {
+  return Foto.reconstituir(fila);
 }
 
 export function aPagoDominio(fila: {

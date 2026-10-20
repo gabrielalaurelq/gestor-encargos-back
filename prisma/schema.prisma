@@ -152,7 +152,10 @@ model Foto {
   encargoId        String    @map("encargo_id")
   objetoRecibidoId String?   @map("objeto_recibido_id")
   negocioId        String    @map("negocio_id")
-  url              String
+  /// Clave del objeto en R2 (`negocios/{n}/encargos/{e}/fotos/{f}.jpg`), no una
+  /// URL: el bucket es privado y las URLs firmadas caducan. La columna conserva
+  /// su nombre del Doc 4 (`url`) para no migrar; solo cambia el nombre en Prisma.
+  clave            String    @map("url")
   creadoEn         DateTime  @default(now()) @map("creado_en")
   actualizadoEn    DateTime  @updatedAt @map("actualizado_en")
   eliminadoEn      DateTime? @map("eliminado_en")

@@ -1,7 +1,9 @@
 import { PagoTipo, Prisma } from '@prisma/client';
 import { Monto } from '../../../shared/domain/monto';
+import { claveFoto } from '../../../shared/application/almacenamiento-fotos';
 import { RecursoDuplicadoError } from '../../../shared/domain/recurso-duplicado.error';
 import { TransaccionNegocio } from '../../../shared/infrastructure/prisma/prisma-negocio';
+import { Foto } from '../domain/foto';
 import { Material } from '../domain/material';
 import { Nota } from '../domain/nota';
 import { ObjetoRecibido } from '../domain/objeto-recibido';
@@ -9,12 +11,14 @@ import { Pago } from '../domain/pago';
 import { EscriturasHijos } from '../domain/repositories/encargo.repository';
 import { ServicioDelCatalogo, Trabajo } from '../domain/trabajo';
 import {
+  CAMPOS_FOTO,
   CAMPOS_MATERIAL,
   CAMPOS_NOTA,
   CAMPOS_OBJETO,
   CAMPOS_PAGO,
   CAMPOS_TRABAJO,
   VIVOS,
+  aFotoDominio,
   aMaterialDominio,
   aNotaDominio,
   aObjetoDominio,
@@ -228,6 +232,33 @@ export class PrismaEscriturasHijos implements EscriturasHijos {
       });
       return aNotaDominio(fila);
     });
+  }
+
+  async buscarFoto(id: string): Promise<Foto | null> {
+    const fila = await this.tx.foto.findFirst({
+      where: { id, encargoId: this.encargoId, ...VIVOS },
+      select: CAMPOS_FOTO,
+    });
+    return fila ? aFotoDominio(fila) : null;
+  }
+
+  async crearFoto(foto: Foto): Promise<Foto> {
+    return this.conConflicto('foto', foto.id, async () => {
+      const fila = await this.tx.foto.create({
+        data: this.conPadre({
+          id: foto.id,
+          objetoRecibidoId: foto.objetoRecibidoId,
+          clave: claveFoto(this.negocioId, this.encargoId, foto.id),
+        }),
+        select: CAMPOS_FOTO,
+      });
+      return aFotoDominio(fila);
+    });
+  }
+
+  async eliminarFoto(id: string): Promise<boolean> {
+    const { count } = await this.tx.foto.updateMany(this.criterioVivo(id));
+    return count > 0;
   }
 
   async buscarServicioActivo(servicioId: string): Promise<ServicioDelCatalogo | 'inactivo' | null> {

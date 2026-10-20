@@ -274,6 +274,29 @@ PRD módulo 16, definido en el Doc 5 Bloque 4. Módulo propio de solo lectura, c
 
 **Incidente al generar la migración — los índices trigram:** `prisma migrate dev` generó **y aplicó a la base local** `DROP INDEX` sobre los 4 índices `gin_trgm_ops`, porque solo existían en el SQL escrito a mano de la migración inicial y Prisma los veía como ajenos. Se revirtió en la base local (columna quitada, índices recreados, registro de la migración borrado) y se declararon los 4 en `schema.prisma` con `type: Gin` y `ops: raw("gin_trgm_ops")` y sus nombres originales, de modo que la migración regenerada solo contiene el `ADD COLUMN` y `prisma migrate diff` no detecta diferencias. **Los índices parciales (`WHERE ...`) de la migración inicial no los toca** — Prisma no los gestiona —, pero conviene revisar cada migración generada antes de aplicarla en cualquier entorno compartido.
 
+### Fotos con Cloudflare R2 (PRD 14, Doc 8 Bloque 3)
+
+`POST /encargos/{id}/fotos` y su `DELETE`; `GET /encargos/{id}` y `/sync` traen las fotos con una URL de descarga firmada. **El binario nunca pasa por el backend**: la app sube con un `PUT` directo a R2 y descarga con un `GET` directo.
+
+- **Puerto `AlmacenamientoFotos`** en `shared/application/` (lo usan `encargos`, `sync` y `mantenimiento`), implementado por `R2AlmacenamientoFotos` en `shared/infrastructure/storage/` con el SDK de S3 (`region: 'auto'`, endpoint de la cuenta). Se registra con un `AlmacenamientoModule` global, como `PrismaModule`.
+- **Firmar es un HMAC local**: no toca la red, así que la app firma en desarrollo con las credenciales de plantilla y el e2e de fotos usa la implementación real. Solo `eliminar()` habla con R2; el e2e de mantenimiento usa un doble.
+- La columna `fotos.url` guarda la **clave** del objeto, no una URL (las URLs firmadas caducan). En Prisma se llama `clave` (`@map("url")`), sin migración.
+
+| Decisión | Elección | Motivo |
+|---|---|---|
+| Descarga | **Bucket privado + URL firmada**, 7 días (máximo de SigV4) | Elegido por el usuario frente al bucket público que sugería el ADR-007: son fotos de objetos de clientes reales, y una URL pública no se puede revocar. |
+| Renovar una URL vencida | `GET /encargos/{id}`, que firma de nuevo | Propuse un endpoint propio; no hace falta: el detalle ya firma en cada lectura. Menos superficie. |
+| Subida fallida | **Reenviar el mismo `POST`** → `200` con una `upload_url` nueva (1 h) | Elegido por el usuario frente a una columna de "subida confirmada". La cola Outbox ya reintenta; sin columnas nuevas. Mientras no suba, la URL de descarga da 404 y la app muestra "foto no disponible todavía". |
+| Respuesta del `POST` | La foto (misma forma que en el detalle) + `upload_url` y su vencimiento | El Doc 8 decía `{foto_id, upload_url}`; con la foto completa, la app no necesita otra forma. |
+| `DELETE` | `204`, solo tombstone; **el archivo no se borra todavía** | Un dispositivo offline todavía no se enteró. Lo borra la purga. |
+| Objeto ajeno o borrado | `422 OBJETO_NO_EN_ENCARGO` | Sin esto, FK → `500`, o una foto colgando de un tombstone. |
+
+**La purga ahora borra fotos: primero en R2, después la fila.** Al revés, si R2 fallara, quedaría un archivo huérfano que ya nadie sabe borrar; en este orden, si falla la base, la próxima corrida borra otra vez en R2 (idempotente). La llamada a R2 va fuera de la transacción (Prisma aborta las de más de 5 s). Un objeto vencido con una foto todavía viva sigue sin purgarse: el `CASCADE` borraría esa fila sin borrar su archivo.
+
+**Lo encontraron los specs de la firma, y habría fallado en producción:** (1) el SDK genera URLs con el bucket en el subdominio; se fijó `forcePathStyle` —el estilo que documenta R2, y que no rompe TLS con un nombre de bucket con puntos—; (2) el presigner **no firma `Content-Type`** por defecto, aunque el comando lo lleve: hay que pedirlo con `signableHeaders`. Sin eso, el comentario del código afirmaba una restricción que no existía.
+
+**Riesgo aceptado:** una URL de `PUT` firmada no limita el tamaño del archivo (eso solo lo permite un POST de formulario con `content-length-range`). Una app modificada podría subir un archivo enorme a la ruta de su propio negocio. Afecta al costo de almacenamiento, no a otros negocios; se revisa si aparece.
+
 ## Pendiente
 
 ### Fechas de hecho: las pone el dispositivo
@@ -299,7 +322,7 @@ Validación (`resolverFechaDeHecho` en `shared/domain/fecha.ts`): hasta **1 día
 
 **Lo que se acepta a cambio:** un teléfono con el reloj mal puesto producirá fechas malas y descuadrará la Caja diaria del negociante. La tolerancia de 1 día acota el futuro, pero no lo elimina. Y la fecha pasa a ser falsificable por el dueño del negocio sobre sus propios datos — sin riesgo entre negocios (RLS y el `negocioId` de la sesión lo impiden); falsear tus propias fechas es un problema de tu contabilidad, no de seguridad. No se puede acotar el pasado contra la creación del encargo, que sería lo natural, porque `creado_en` es del servidor: un encargo creado sin conexión tendría `creado_en` **posterior** a la fecha real de su propio pago.
 - Sprint 5: Dashboard, Dictado por voz (STT), WhatsApp nivel gratuito.
-- **Orden acordado para cerrar el backend del MVP (2026-10-19):** ~~A. historial del cliente~~ → ~~B. Materiales~~ → ~~C. `GET /buscar`~~ → ~~F. `PurgaSoftDeleteJob` + `RevisarVencimientosPlanJob`~~ → D. Fotos (R2 + URLs prefirmadas) → E. `NotificacionesService` (FCM) + `EvaluarRecordatoriosJob`.
+- **Orden acordado para cerrar el backend del MVP (2026-10-19):** ~~A. historial del cliente~~ → ~~B. Materiales~~ → ~~C. `GET /buscar`~~ → ~~F. `PurgaSoftDeleteJob` + `RevisarVencimientosPlanJob`~~ → ~~D. Fotos (R2 + URLs prefirmadas)~~ → E. `NotificacionesService` (FCM) + `EvaluarRecordatoriosJob`.
 - **Caja diaria, Balance de Carga y Calendario no tienen endpoint propio, por diseño** (confirmado con el usuario): el Doc 5 no los define y su Bloque 4 explica por qué — la app es offline-first y las calcula sobre Drift con lo que trae `/sync`. Un endpoint de servidor duplicaría la lógica y daría cifras distintas a las locales sin conexión.
 - **Documentos al día:** el Doc 5 está en **v1.4** y el Doc 8 en **v1.1**, ambos enmendados desde el código (`docs/`, sin commitear). Cada sprint nuevo probablemente aporte otra enmienda: conviene hacerlas al cerrar el sprint, no al final, porque el Doc 5 es el contrato contra el que se escribirá la app Flutter.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).

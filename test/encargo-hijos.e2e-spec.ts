@@ -671,7 +671,7 @@ describe('Hijos del encargo (e2e)', () => {
   });
 
   describe('GET /encargos/{id} con los hijos anidados', () => {
-    it('devuelve las cuatro colecciones, las notas de más reciente a más antigua', async () => {
+    it('devuelve las colecciones, las notas de más reciente a más antigua', async () => {
       const encargoId = await nuevoEncargo();
       await comoA(http().post(`/api/v1/encargos/${encargoId}/objetos`)).send({
         descripcion: 'Pantalón',
@@ -696,8 +696,8 @@ describe('Hijos del encargo (e2e)', () => {
       expect(res.body.pagos).toHaveLength(1);
       expect(res.body.notas.map((n: { texto: string }) => n.texto)).toEqual(['Segunda', 'Primera']);
       expect(res.body).toMatchObject({ precio_total: 20, saldo_pendiente: 15 });
-      // Fotos llega en Sprint 7: la clave no se promete todavía.
-      expect(res.body.fotos).toBeUndefined();
+      // Fotos tiene su propio e2e (fotos.e2e-spec.ts); acá basta con que esté.
+      expect(res.body.fotos).toEqual([]);
     });
 
     it('un encargo recién creado trae las colecciones vacías', async () => {

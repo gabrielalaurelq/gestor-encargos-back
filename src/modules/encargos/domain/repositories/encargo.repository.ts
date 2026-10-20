@@ -1,6 +1,7 @@
 import { PaginaResultado } from '../../../../shared/presentation/paginacion';
 import { Encargo, SumasEncargo } from '../encargo';
 import { EstadoEncargo } from '../estado-encargo';
+import { Foto } from '../foto';
 import { Material } from '../material';
 import { Nota } from '../nota';
 import { ObjetoRecibido } from '../objeto-recibido';
@@ -36,7 +37,7 @@ export interface FiltroEncargos {
  * Los hijos van aquí y no dentro de la entidad `Encargo` a propósito: la
  * entidad solo necesita las **sumas** para sostener sus invariantes, no las
  * colecciones. Embeberlas serviría únicamente para serializar, y obligaría a
- * cargarlas en cada lectura de la raíz. Fotos llega en Sprint 7.
+ * cargarlas en cada lectura de la raíz.
  *
  * `materiales` va plano, con su `trabajoId`: la respuesta los anida dentro de
  * cada trabajo, que es una decisión de presentación, no del dominio.
@@ -48,6 +49,8 @@ export interface DetalleEncargo {
   materiales: Material[];
   pagos: Pago[];
   notas: Nota[];
+  /** Todas, generales y de objetos, en una lista: el visor del PRD 14 las junta. */
+  fotos: Foto[];
 }
 
 /**
@@ -93,6 +96,12 @@ export interface EscriturasHijos {
 
   buscarNota(id: string): Promise<Nota | null>;
   crearNota(nota: Nota): Promise<Nota>;
+
+  buscarFoto(id: string): Promise<Foto | null>;
+  /** Asigna la clave de R2 al persistir; la foto devuelta ya la trae. */
+  crearFoto(foto: Foto): Promise<Foto>;
+  /** Soft delete. El archivo en R2 lo borra la purga, cuando el tombstone ya se propagó. */
+  eliminarFoto(id: string): Promise<boolean>;
 
   /** Servicio del catálogo, para copiar nombre y precio (invariante 12). */
   buscarServicioActivo(servicioId: string): Promise<ServicioDelCatalogo | 'inactivo' | null>;

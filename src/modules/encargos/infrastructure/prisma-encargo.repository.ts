@@ -18,12 +18,14 @@ import {
   ResultadoMutacion,
 } from '../domain/repositories/encargo.repository';
 import {
+  CAMPOS_FOTO,
   CAMPOS_MATERIAL,
   CAMPOS_NOTA,
   CAMPOS_OBJETO,
   CAMPOS_PAGO,
   CAMPOS_TRABAJO,
   VIVOS,
+  aFotoDominio,
   aMaterialDominio,
   aNotaDominio,
   aObjetoDominio,
@@ -99,7 +101,7 @@ export class PrismaEncargoRepository extends EncargoRepository {
         return null;
       }
 
-      const [objetos, trabajos, materiales, pagos, notas] = await Promise.all([
+      const [objetos, trabajos, materiales, pagos, notas, fotos] = await Promise.all([
         tx.objetoRecibido.findMany({
           where: { encargoId: id, ...VIVOS },
           select: CAMPOS_OBJETO,
@@ -127,9 +129,14 @@ export class PrismaEncargoRepository extends EncargoRepository {
           select: CAMPOS_NOTA,
           orderBy: { creadoEn: 'desc' },
         }),
+        tx.foto.findMany({
+          where: { encargoId: id, ...VIVOS },
+          select: CAMPOS_FOTO,
+          orderBy: { creadoEn: 'asc' },
+        }),
       ]);
 
-      return { fila, objetos, trabajos, materiales, pagos, notas };
+      return { fila, objetos, trabajos, materiales, pagos, notas, fotos };
     });
 
     if (!detalle) {
@@ -143,6 +150,7 @@ export class PrismaEncargoRepository extends EncargoRepository {
       materiales: detalle.materiales.map(aMaterialDominio),
       pagos: detalle.pagos.map(aPagoDominio),
       notas: detalle.notas.map(aNotaDominio),
+      fotos: detalle.fotos.map(aFotoDominio),
     };
   }
 

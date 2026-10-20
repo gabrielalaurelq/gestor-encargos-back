@@ -23,7 +23,8 @@ export class SyncController {
       'hacia atrás, así que algunas filas llegan repetidas: con Last-Write-Wins aplicarlas dos ' +
       'veces da el mismo resultado, y es el precio de que no se pierda ninguna.\n\n' +
       'Las filas con `eliminado_en` viajan como cualquier otro cambio — son la señal para ' +
-      'borrar en local. `fotos` llega vacía hasta el bloque de R2.',
+      'borrar en local. Cada foto trae `url_descarga`, firmada y válida 7 días: la app baja ' +
+      'el archivo y lo guarda en local (si vence, `GET /encargos/{id}` firma otra).',
   })
   @ApiOkResponse({ type: SyncResponse })
   @ApiResponse({

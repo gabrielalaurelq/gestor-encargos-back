@@ -7,6 +7,7 @@ import { configurarAplicacion } from '../src/app.config';
 import { AppModule } from '../src/app.module';
 import { Ambiente } from '../src/config/env.validation';
 import { VerificadorIdentidad } from '../src/modules/auth/application/ports/verificador-identidad';
+import { AlmacenamientoFotos } from '../src/shared/application/almacenamiento-fotos';
 import { PurgarTombstonesUseCase } from '../src/modules/mantenimiento/application/purgar-tombstones.use-case';
 import { RevertirPlanesVencidosUseCase } from '../src/modules/mantenimiento/application/revertir-planes-vencidos.use-case';
 import { ErrorAutenticacion } from '../src/shared/application/error-autenticacion';
@@ -30,6 +31,20 @@ describe('Mantenimiento: purga, planes y sync vencido (e2e)', () => {
   let negocioA: string;
   let negocioB: string;
   let clienteA: string;
+  // R2 de mentira: firmar es local, pero borrar habla con la red.
+  const almacenamiento = {
+    urlSubida: jest.fn(async (clave: string) => ({
+      url: `https://r2.test/put/${clave}`,
+      expiraEn: new Date(),
+    })),
+    urlDescarga: jest.fn(async (clave: string) => ({
+      url: `https://r2.test/get/${clave}`,
+      expiraEn: new Date(),
+    })),
+    eliminar: jest.fn(async () => undefined),
+  };
+
+  beforeEach(() => almacenamiento.eliminar.mockClear());
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -42,6 +57,8 @@ describe('Mantenimiento: purga, planes y sync vencido (e2e)', () => {
           return { googleUid: idToken.slice('valido-'.length) };
         },
       })
+      .overrideProvider(AlmacenamientoFotos)
+      .useValue(almacenamiento)
       .compile();
 
     app = moduleRef.createNestApplication({ logger: false });
@@ -153,7 +170,8 @@ describe('Mantenimiento: purga, planes y sync vencido (e2e)', () => {
       expect(detalle.body).toMatchObject({ precio_total: 100, saldo_pendiente: 100, pagos: [] });
     });
 
-    it('un objeto con fotos no se purga: borraría la fila sin borrar el archivo en R2', async () => {
+    /** Objeto con una foto, ambos con tombstone de la antigüedad indicada. */
+    async function objetoConFoto(diasObjeto: number, diasFoto: number | null) {
       const encargo = await comoA(http().post('/api/v1/encargos')).send({
         cliente_id: clienteA,
         descripcion: 'Con foto',
@@ -162,29 +180,57 @@ describe('Mantenimiento: purga, planes y sync vencido (e2e)', () => {
       const objeto = await comoA(http().post(`/api/v1/encargos/${encargo.body.id}/objetos`)).send({
         descripcion: 'Zapato',
       });
-      const objetoId = objeto.body.objeto.id;
+      const foto = await comoA(http().post(`/api/v1/encargos/${encargo.body.id}/fotos`)).send({
+        objeto_recibido_id: objeto.body.objeto.id,
+      });
       await prisma.enNegocio(negocioA, async (tx) => {
-        await tx.foto.create({
-          data: {
-            encargoId: encargo.body.id,
-            objetoRecibidoId: objetoId,
-            negocioId: negocioA,
-            url: 'negocios/x/foto.jpg',
-            eliminadoEn: hace(91),
-          },
+        await tx.foto.update({
+          where: { id: foto.body.id },
+          data: { eliminadoEn: diasFoto === null ? null : hace(diasFoto) },
         });
         await tx.objetoRecibido.update({
-          where: { id: objetoId },
-          data: { eliminadoEn: hace(91) },
+          where: { id: objeto.body.objeto.id },
+          data: { eliminadoEn: hace(diasObjeto) },
         });
       });
+      const { clave } = await prisma.enNegocio(negocioA, (tx) =>
+        tx.foto.findUniqueOrThrow({ where: { id: foto.body.id } }),
+      );
+      return { objetoId: objeto.body.objeto.id as string, fotoId: foto.body.id as string, clave };
+    }
+
+    const existen = (objetoId: string, fotoId: string) =>
+      prisma.enNegocio(negocioA, async (tx) => ({
+        objeto: await tx.objetoRecibido.count({ where: { id: objetoId } }),
+        foto: await tx.foto.count({ where: { id: fotoId } }),
+      }));
+
+    it('foto vencida: se borra su archivo en R2, después la fila, y entonces cae su objeto', async () => {
+      const { objetoId, fotoId, clave } = await objetoConFoto(91, 91);
 
       await app.get(PurgarTombstonesUseCase).execute();
 
-      const quedan = await prisma.enNegocio(negocioA, (tx) =>
-        tx.objetoRecibido.count({ where: { id: objetoId } }),
-      );
-      expect(quedan).toBe(1);
+      expect(almacenamiento.eliminar).toHaveBeenCalledWith(expect.arrayContaining([clave]));
+      expect(await existen(objetoId, fotoId)).toEqual({ objeto: 0, foto: 0 });
+    });
+
+    it('objeto vencido con una foto viva: no se purga (el CASCADE la borraría sin borrar R2)', async () => {
+      const { objetoId, fotoId, clave } = await objetoConFoto(91, null);
+
+      await app.get(PurgarTombstonesUseCase).execute();
+
+      expect(almacenamiento.eliminar).not.toHaveBeenCalledWith(expect.arrayContaining([clave]));
+      expect(await existen(objetoId, fotoId)).toEqual({ objeto: 1, foto: 1 });
+    });
+
+    it('si R2 falla, ninguna fila del negocio se borra: se reintenta la semana siguiente', async () => {
+      const { objetoId, fotoId } = await objetoConFoto(91, 91);
+      almacenamiento.eliminar.mockRejectedValueOnce(new Error('R2 caído'));
+
+      const resumen = await app.get(PurgarTombstonesUseCase).execute();
+
+      expect(resumen.fallidos).toContain(negocioA);
+      expect(await existen(objetoId, fotoId)).toEqual({ objeto: 1, foto: 1 });
     });
   });
 

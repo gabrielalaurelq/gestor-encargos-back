@@ -17,6 +17,7 @@ import { NegocioModule } from './modules/negocio/negocio.module';
 import { ServiciosModule } from './modules/servicios/servicios.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { PrismaModule } from './shared/infrastructure/prisma/prisma.module';
+import { AlmacenamientoModule } from './shared/infrastructure/storage/almacenamiento.module';
 import { AllExceptionsFilter } from './shared/presentation/filters/all-exceptions.filter';
 import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-negocio.guard';
 
@@ -45,6 +46,7 @@ import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-ne
     // Doc 8 Bloque 3: jobs programados (MantenimientoModule).
     ScheduleModule.forRoot(),
     PrismaModule,
+    AlmacenamientoModule,
     AuthModule,
     NegocioModule,
     ClientesModule,

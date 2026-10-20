@@ -309,7 +309,7 @@ export class PrismaSyncRepository extends SyncRepository {
     id: string;
     encargoId: string;
     objetoRecibidoId: string | null;
-    url: string;
+    clave: string;
     creadoEn: Date;
     actualizadoEn: Date;
     eliminadoEn: Date | null;
@@ -318,7 +318,8 @@ export class PrismaSyncRepository extends SyncRepository {
       id: fila.id,
       encargo_id: fila.encargoId,
       objeto_recibido_id: fila.objetoRecibidoId,
-      url: fila.url,
+      // Interna: el caso de uso la cambia por una URL de descarga firmada.
+      clave: fila.clave,
       creado_en: marca(fila.creadoEn),
       actualizado_en: marca(fila.actualizadoEn),
       eliminado_en: marca(fila.eliminadoEn),

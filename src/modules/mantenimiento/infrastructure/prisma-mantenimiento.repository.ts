@@ -23,10 +23,22 @@ export class PrismaMantenimientoRepository extends MantenimientoRepository {
     return filas.map((fila) => fila.id);
   }
 
-  purgarTombstones(negocioId: string, limite: Date): Promise<ConteoPurga> {
+  fotosPorPurgar(negocioId: string, limite: Date): Promise<{ id: string; clave: string }[]> {
+    return this.prisma.enNegocio(negocioId, (tx) =>
+      tx.foto.findMany({
+        where: { eliminadoEn: { lt: limite } },
+        select: { id: true, clave: true },
+      }),
+    );
+  }
+
+  purgarTombstones(negocioId: string, limite: Date, fotoIds: string[]): Promise<ConteoPurga> {
     const vencido = { eliminadoEn: { lt: limite } };
 
     return this.prisma.enNegocio(negocioId, async (tx) => {
+      // Solo las fotos cuyo archivo ya se borró de R2 (las que recibe acá), y
+      // antes que los objetos: así el CASCADE de abajo no arrastra ninguna.
+      const fotos = await tx.foto.deleteMany({ where: { id: { in: fotoIds } } });
       // Materiales antes que trabajos para poder contarlos: borrar el trabajo
       // primero los arrastraría por la FK (CASCADE) sin dejar rastro en el
       // conteo. Con la cascada lógica comparten `eliminado_en`, así que caen
@@ -34,14 +46,16 @@ export class PrismaMantenimientoRepository extends MantenimientoRepository {
       const materiales = await tx.material.deleteMany({ where: vencido });
       const trabajos = await tx.trabajo.deleteMany({ where: vencido });
       const objetos = await tx.objetoRecibido.deleteMany({
-        // `fotos.objeto_recibido_id` es CASCADE: borrar el objeto borraría la
-        // fila de la foto **sin borrar su archivo en R2**. Hasta que la purga
-        // sepa borrar en R2 (bloque de Fotos), un objeto con fotos se queda.
+        // `fotos.objeto_recibido_id` es CASCADE: borrar un objeto que todavía
+        // tiene fotos (vivas, o con tombstone más reciente) borraría esas filas
+        // **sin borrar sus archivos en R2**. Ese objeto espera a la corrida en
+        // que sus fotos ya se hayan purgado arriba.
         where: { ...vencido, fotos: { none: {} } },
       });
       const pagos = await tx.pago.deleteMany({ where: vencido });
 
       return {
+        fotos: fotos.count,
         materiales: materiales.count,
         trabajos: trabajos.count,
         objetos_recibidos: objetos.count,

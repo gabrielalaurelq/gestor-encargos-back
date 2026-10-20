@@ -35,17 +35,20 @@ import { ListarEncargosUseCase } from '../application/use-cases/listar-encargos.
 import { ObtenerEncargoUseCase } from '../application/use-cases/obtener-encargo.use-case';
 import { ReservarBloqueNumerosUseCase } from '../application/use-cases/reservar-bloque-numeros.use-case';
 import { ActualizarObjetoDto, CrearObjetoDto } from '../application/dto/crear-objeto.dto';
+import { CrearFotoDto } from '../application/dto/crear-foto.dto';
 import { CrearMaterialDto } from '../application/dto/crear-material.dto';
 import { CrearNotaDto } from '../application/dto/crear-nota.dto';
 import { CrearPagoDto } from '../application/dto/crear-pago.dto';
 import { ActualizarTrabajoDto, CrearTrabajoDto } from '../application/dto/crear-trabajo.dto';
 import { ActualizarObjetoUseCase } from '../application/use-cases/actualizar-objeto.use-case';
 import { ActualizarTrabajoUseCase } from '../application/use-cases/actualizar-trabajo.use-case';
+import { CrearFotoUseCase } from '../application/use-cases/crear-foto.use-case';
 import { CrearMaterialUseCase } from '../application/use-cases/crear-material.use-case';
 import { CrearNotaUseCase } from '../application/use-cases/crear-nota.use-case';
 import { CrearObjetoUseCase } from '../application/use-cases/crear-objeto.use-case';
 import { CrearPagoUseCase } from '../application/use-cases/crear-pago.use-case';
 import { CrearTrabajoUseCase } from '../application/use-cases/crear-trabajo.use-case';
+import { EliminarFotoUseCase } from '../application/use-cases/eliminar-foto.use-case';
 import { EliminarMaterialUseCase } from '../application/use-cases/eliminar-material.use-case';
 import { EliminarObjetoUseCase } from '../application/use-cases/eliminar-objeto.use-case';
 import { EliminarPagoUseCase } from '../application/use-cases/eliminar-pago.use-case';
@@ -60,12 +63,14 @@ import {
 } from './encargo.response';
 import {
   DerivadosEncargoResponse,
+  FotoCreadaResponse,
   MaterialResponse,
   NotaResponse,
   ObjetoResponse,
   PagoResponse,
   TrabajoResponse,
   aDerivadosResponse,
+  aFotoResponse,
   aMaterialResponse,
   aNotaResponse,
   aObjetoResponse,
@@ -95,6 +100,8 @@ export class EncargosController {
     private readonly eliminarTrabajo: EliminarTrabajoUseCase,
     private readonly crearMaterial: CrearMaterialUseCase,
     private readonly eliminarMaterial: EliminarMaterialUseCase,
+    private readonly crearFoto: CrearFotoUseCase,
+    private readonly eliminarFoto: EliminarFotoUseCase,
     private readonly crearPago: CrearPagoUseCase,
     private readonly eliminarPago: EliminarPagoUseCase,
     private readonly crearNota: CrearNotaUseCase,
@@ -162,7 +169,9 @@ export class EncargosController {
   @Get(':id')
   @ApiOperation({
     summary: 'Detalle de un encargo con sus hijos anidados.',
-    description: 'Cada trabajo trae sus `materiales`. `fotos` llega con el bloque de R2.',
+    description:
+      'Cada trabajo trae sus `materiales`; las `fotos` traen una URL de descarga recién ' +
+      'firmada — es también la forma de renovar una URL vencida.',
   })
   @ApiOkResponse({ type: EncargoDetalleResponse })
   @ApiResponse({ status: 404, description: 'NO_ENCONTRADO — no existe o es de otro negocio.' })
@@ -357,6 +366,52 @@ export class EncargosController {
     @Param('materialId', ParseUUIDPipe) materialId: string,
   ): Promise<void> {
     await this.eliminarMaterial.execute(id, trabajoId, materialId);
+  }
+
+  @Post(':id/fotos')
+  @ApiOperation({
+    summary: 'Registra una foto y devuelve la URL para subirla a R2.',
+    description:
+      'Solo metadatos: la app sube el archivo con un `PUT` directo a `upload_url` (Doc 8 ' +
+      'Bloque 3), sin pasar por el backend. Idempotente respecto del `id`: reenviar el mismo ' +
+      'alta devuelve 200 con una `upload_url` nueva, que es como se reintenta una subida.',
+  })
+  @ApiCreatedResponse({ type: FotoCreadaResponse })
+  @ApiOkResponse({
+    type: FotoCreadaResponse,
+    description: 'El id ya existía; URL de subida nueva.',
+  })
+  @ApiResponse({ status: 404, description: 'NO_ENCONTRADO — el encargo.' })
+  @ApiResponse({ status: 422, description: 'OBJETO_NO_EN_ENCARGO' })
+  async crearFotoDelEncargo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CrearFotoDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<FotoCreadaResponse> {
+    const { foto, creado, subida, descarga } = await this.crearFoto.execute(id, dto);
+    res.status(creado ? 201 : 200);
+    return {
+      ...aFotoResponse(foto, descarga),
+      upload_url: subida.url,
+      upload_url_expira_en: subida.expiraEn.toISOString(),
+    };
+  }
+
+  @Delete(':id/fotos/:fotoId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Elimina una foto (soft delete).',
+    description:
+      'Sin cuerpo. El archivo en R2 no se borra todavía: lo borra la purga, cuando el borrado ' +
+      'ya se propagó a todos los dispositivos.',
+  })
+  @ApiResponse({ status: 204, description: 'Eliminada.' })
+  @ApiResponse({ status: 404, description: 'NO_ENCONTRADO' })
+  async eliminarFotoDelEncargo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('fotoId', ParseUUIDPipe) fotoId: string,
+  ): Promise<void> {
+    await this.eliminarFoto.execute(id, fotoId);
   }
 
   @Post(':id/pagos')

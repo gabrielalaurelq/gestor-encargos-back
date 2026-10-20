@@ -1,6 +1,7 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { AlmacenamientoFotos } from '../../../shared/application/almacenamiento-fotos';
 import { limiteRetencion } from '../../../shared/domain/retencion-tombstones';
-import { CambiosSync, SyncRepository } from './ports/sync.repository';
+import { CambiosSync, FilaSync, SyncRepository } from './ports/sync.repository';
 import { calcularSiguienteSince } from '../domain/siguiente-since';
 import { syncVigente } from '../domain/sync-vigente';
 import { SyncQuery } from './dto/sync.query';
@@ -28,7 +29,10 @@ export interface ResultadoSync {
 /** `GET /sync?since=` (Doc 5, Bloque 1). */
 @Injectable()
 export class SincronizarUseCase {
-  constructor(private readonly repositorio: SyncRepository) {}
+  constructor(
+    private readonly repositorio: SyncRepository,
+    private readonly almacenamiento: AlmacenamientoFotos,
+  ) {}
 
   async execute(query: SyncQuery, dispositivoId: string): Promise<ResultadoSync> {
     // Se toma antes de consultar: cualquier escritura posterior tendrá un
@@ -55,7 +59,22 @@ export class SincronizarUseCase {
 
     const { cambios, corte } = await this.repositorio.cambiosDesde(since, LIMITE_POR_COLECCION);
     const { servidorTimestamp, hasMore } = calcularSiguienteSince({ inicio, corte });
+    cambios.fotos = await Promise.all(cambios.fotos.map((fila) => this.conUrlDescarga(fila)));
 
     return { servidorTimestamp, hasMore, cambios };
+  }
+
+  /**
+   * La clave de R2 es interna: el cliente recibe una URL de descarga firmada
+   * (bucket privado). Un tombstone no la necesita — es la señal para borrar en
+   * local, no hay nada que bajar.
+   */
+  private async conUrlDescarga(fila: FilaSync): Promise<FilaSync> {
+    const { clave, ...resto } = fila;
+    if (fila.eliminado_en !== null) {
+      return { ...resto, url_descarga: null, url_descarga_expira_en: null };
+    }
+    const { url, expiraEn } = await this.almacenamiento.urlDescarga(clave as string);
+    return { ...resto, url_descarga: url, url_descarga_expira_en: expiraEn.toISOString() };
   }
 }

@@ -1,6 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { isoDesdeFecha } from '../../../shared/domain/fecha';
+import { UrlFirmada } from '../../../shared/application/almacenamiento-fotos';
 import { Encargo } from '../domain/encargo';
+import { Foto } from '../domain/foto';
 import { Material } from '../domain/material';
 import { Nota } from '../domain/nota';
 import { ObjetoRecibido } from '../domain/objeto-recibido';
@@ -83,6 +85,47 @@ export class MaterialResponse {
 export class TrabajoDetalleResponse extends TrabajoResponse {
   @ApiProperty({ isArray: true, type: MaterialResponse })
   materiales!: MaterialResponse[];
+}
+
+export class FotoResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({
+    format: 'uuid',
+    nullable: true,
+    description: '`null` = foto general del encargo.',
+  })
+  objeto_recibido_id!: string | null;
+
+  @ApiProperty({
+    description:
+      'URL firmada de descarga (bucket privado). La app baja el archivo y lo guarda en local; ' +
+      'si vence, `GET /encargos/{id}` entrega una nueva. Da 404 mientras la subida no termine.',
+  })
+  url_descarga!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  url_descarga_expira_en!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  creado_en!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  actualizado_en!: string;
+}
+
+/** Respuesta del alta: la foto más la URL para subir el archivo a R2. */
+export class FotoCreadaResponse extends FotoResponse {
+  @ApiProperty({
+    description:
+      '`PUT` del archivo, directo a R2, con el header `Content-Type: image/jpeg` (va firmado). ' +
+      'Vence en 1 hora; para reintentar, reenviar el mismo `POST` con el mismo `id`.',
+  })
+  upload_url!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  upload_url_expira_en!: string;
 }
 
 export class PagoResponse {
@@ -188,6 +231,17 @@ export function aMaterialResponse(material: Material): MaterialResponse {
     costo: material.costo?.soles ?? null,
     creado_en: material.creadoEn!.toISOString(),
     actualizado_en: material.actualizadoEn!.toISOString(),
+  };
+}
+
+export function aFotoResponse(foto: Foto, descarga: UrlFirmada): FotoResponse {
+  return {
+    id: foto.id,
+    objeto_recibido_id: foto.objetoRecibidoId,
+    url_descarga: descarga.url,
+    url_descarga_expira_en: descarga.expiraEn.toISOString(),
+    creado_en: foto.creadoEn!.toISOString(),
+    actualizado_en: foto.actualizadoEn!.toISOString(),
   };
 }
 

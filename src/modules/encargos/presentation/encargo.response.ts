@@ -2,12 +2,14 @@ import { ApiProperty } from '@nestjs/swagger';
 import { isoDesdeFecha } from '../../../shared/domain/fecha';
 import { AdvertenciaEncargo, Encargo } from '../domain/encargo';
 import { EstadoEncargo } from '../domain/estado-encargo';
-import { DetalleEncargo } from '../domain/repositories/encargo.repository';
+import { DetalleConDescargas } from '../application/use-cases/obtener-encargo.use-case';
 import {
+  FotoResponse,
   NotaResponse,
   ObjetoResponse,
   PagoResponse,
   TrabajoDetalleResponse,
+  aFotoResponse,
   aMaterialResponse,
   aNotaResponse,
   aObjetoResponse,
@@ -139,9 +141,16 @@ export class EncargoDetalleResponse extends EncargoResponse {
 
   @ApiProperty({ isArray: true, type: NotaResponse, description: 'Más recientes primero.' })
   notas!: NotaResponse[];
+
+  @ApiProperty({
+    isArray: true,
+    type: FotoResponse,
+    description: 'Todas juntas, generales y de objetos (visor del PRD 14).',
+  })
+  fotos!: FotoResponse[];
 }
 
-export function aEncargoDetalleResponse(detalle: DetalleEncargo): EncargoDetalleResponse {
+export function aEncargoDetalleResponse(detalle: DetalleConDescargas): EncargoDetalleResponse {
   return {
     ...aEncargoResponse(detalle.encargo),
     objetos: detalle.objetos.map(aObjetoResponse),
@@ -153,5 +162,6 @@ export function aEncargoDetalleResponse(detalle: DetalleEncargo): EncargoDetalle
     })),
     pagos: detalle.pagos.map(aPagoResponse),
     notas: detalle.notas.map(aNotaResponse),
+    fotos: detalle.fotos.map((foto) => aFotoResponse(foto, detalle.descargas.get(foto.id)!)),
   };
 }

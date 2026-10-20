@@ -8,11 +8,13 @@ import { ListarEncargosUseCase } from './application/use-cases/listar-encargos.u
 import { ObtenerEncargoUseCase } from './application/use-cases/obtener-encargo.use-case';
 import { ActualizarObjetoUseCase } from './application/use-cases/actualizar-objeto.use-case';
 import { ActualizarTrabajoUseCase } from './application/use-cases/actualizar-trabajo.use-case';
+import { CrearFotoUseCase } from './application/use-cases/crear-foto.use-case';
 import { CrearMaterialUseCase } from './application/use-cases/crear-material.use-case';
 import { CrearNotaUseCase } from './application/use-cases/crear-nota.use-case';
 import { CrearObjetoUseCase } from './application/use-cases/crear-objeto.use-case';
 import { CrearPagoUseCase } from './application/use-cases/crear-pago.use-case';
 import { CrearTrabajoUseCase } from './application/use-cases/crear-trabajo.use-case';
+import { EliminarFotoUseCase } from './application/use-cases/eliminar-foto.use-case';
 import { EliminarMaterialUseCase } from './application/use-cases/eliminar-material.use-case';
 import { EliminarObjetoUseCase } from './application/use-cases/eliminar-objeto.use-case';
 import { EliminarPagoUseCase } from './application/use-cases/eliminar-pago.use-case';
@@ -47,6 +49,8 @@ import { EncargosController } from './presentation/encargos.controller';
     EliminarTrabajoUseCase,
     CrearMaterialUseCase,
     EliminarMaterialUseCase,
+    CrearFotoUseCase,
+    EliminarFotoUseCase,
     CrearPagoUseCase,
     EliminarPagoUseCase,
     CrearNotaUseCase,
