@@ -56,12 +56,16 @@ model Negocio {
 }
 
 model Dispositivo {
-  id               String   @id @default(uuid())
-  negocioId        String   @map("negocio_id")
-  fcmToken         String?  @unique @map("fcm_token")
-  refreshTokenHash String   @unique @map("refresh_token_hash")
-  creadoEn         DateTime @default(now()) @map("creado_en")
-  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+  id               String    @id @default(uuid())
+  negocioId        String    @map("negocio_id")
+  fcmToken         String?   @unique @map("fcm_token")
+  refreshTokenHash String    @unique @map("refresh_token_hash")
+  /// Última llamada a `GET /sync` de este dispositivo (reloj del servidor).
+  /// Distingue un dispositivo abandonado (>90 días, `410`) de la página 2 de
+  /// una resincronización en curso, cuyo `since` puede ser igual de antiguo.
+  ultimaSyncEn     DateTime? @map("ultima_sync_en")
+  creadoEn         DateTime  @default(now()) @map("creado_en")
+  actualizadoEn    DateTime  @updatedAt @map("actualizado_en")
 
   negocio Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
@@ -81,6 +85,11 @@ model Cliente {
   encargos Encargo[]
 
   @@index([negocioId])
+  // Búsqueda parcial (Caso 8, PRD 16). Declarados acá —y no solo en el SQL de
+  // la migración inicial— para que `prisma migrate dev` no los vea como
+  // ajenos y los borre: lo hizo al generar la segunda migración.
+  @@index([nombre(ops: raw("gin_trgm_ops"))], map: "clientes_nombre_trgm_idx", type: Gin)
+  @@index([telefono(ops: raw("gin_trgm_ops"))], map: "clientes_telefono_trgm_idx", type: Gin)
   @@map("clientes")
 }
 
@@ -113,6 +122,9 @@ model Encargo {
 
   @@unique([negocioId, numero])
   @@index([negocioId, estado, fechaEntregaAcordada])
+  // Búsqueda global (PRD 16); ver la nota en `Cliente`.
+  @@index([descripcion(ops: raw("gin_trgm_ops"))], map: "encargos_descripcion_trgm_idx", type: Gin)
+  @@index([ubicacionFisica(ops: raw("gin_trgm_ops"))], map: "encargos_ubicacion_fisica_trgm_idx", type: Gin)
   @@index([clienteId, fechaEntregaAcordada])
   @@map("encargos")
 }

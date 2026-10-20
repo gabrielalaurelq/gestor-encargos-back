@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { Ambiente, validarEntorno } from './config/env.validation';
@@ -11,6 +12,7 @@ import { AuthGuard } from './modules/auth/presentation/guards/auth.guard';
 import { BusquedaModule } from './modules/busqueda/busqueda.module';
 import { ClientesModule } from './modules/clientes/clientes.module';
 import { EncargosModule } from './modules/encargos/encargos.module';
+import { MantenimientoModule } from './modules/mantenimiento/mantenimiento.module';
 import { NegocioModule } from './modules/negocio/negocio.module';
 import { ServiciosModule } from './modules/servicios/servicios.module';
 import { SyncModule } from './modules/sync/sync.module';
@@ -24,8 +26,8 @@ import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-ne
 // APP_GUARD global. Doc 5, Bloque 4: rate limiting con ThrottlerNegocioGuard.
 // Los dos guards se registran acá, en este orden, porque el throttler cuenta
 // por negocio y necesita la sesión que deja el AuthGuard.
-// Módulos: negocio propio, clientes, servicios, encargos, búsqueda global y el
-// pull de sincronización.
+// Módulos: negocio propio, clientes, servicios, encargos, búsqueda global, el
+// pull de sincronización y los jobs de mantenimiento.
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -40,6 +42,8 @@ import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-ne
     // Almacenamiento en memoria: suficiente con una sola instancia del
     // backend (MVP). Si se escala horizontalmente, pasar a ThrottlerStorageRedis.
     ThrottlerModule.forRoot([LIMITE_GENERAL]),
+    // Doc 8 Bloque 3: jobs programados (MantenimientoModule).
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     NegocioModule,
@@ -48,6 +52,7 @@ import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-ne
     EncargosModule,
     BusquedaModule,
     SyncModule,
+    MantenimientoModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },

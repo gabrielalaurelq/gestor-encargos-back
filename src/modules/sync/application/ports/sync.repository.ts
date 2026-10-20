@@ -46,4 +46,14 @@ export abstract class SyncRepository {
    *   trunca y se informa el corte.
    */
   abstract cambiosDesde(since: Date | null, limitePorColeccion: number): Promise<ResultadoCambios>;
+
+  /**
+   * `dispositivos.ultima_sync_en` de este dispositivo; `null` si nunca
+   * sincronizó desde que existe la columna o si la fila ya no existe (sesión
+   * cerrada con el access token aún vigente).
+   */
+  abstract ultimaSync(dispositivoId: string): Promise<Date | null>;
+
+  /** Marca la sync en curso. No falla si la fila ya no existe. */
+  abstract registrarSync(dispositivoId: string, cuando: Date): Promise<void>;
 }

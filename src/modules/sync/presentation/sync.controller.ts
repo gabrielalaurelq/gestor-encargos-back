@@ -1,5 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { SesionActual } from '../../../shared/presentation/auth/sesion-actual.decorator';
+import { SesionAutenticada } from '../../../shared/presentation/auth/sesion-autenticada';
 import { SyncQuery } from '../application/dto/sync.query';
 import { SincronizarUseCase } from '../application/sincronizar.use-case';
 import { SyncResponse } from './sync.response';
@@ -24,8 +26,21 @@ export class SyncController {
       'borrar en local. `fotos` llega vacía hasta el bloque de R2.',
   })
   @ApiOkResponse({ type: SyncResponse })
-  async obtenerCambios(@Query() query: SyncQuery): Promise<SyncResponse> {
-    const { servidorTimestamp, hasMore, cambios } = await this.sincronizar.execute(query);
+  @ApiResponse({
+    status: 410,
+    description:
+      'SYNC_DEMASIADO_ANTIGUO — el `since` y la última sync de este dispositivo quedaron por ' +
+      'detrás del horizonte de purga de tombstones (90 días): pudo perderse borrados. La app ' +
+      'descarta lo ya sincronizado (no la cola Outbox pendiente) y repite sin `since`.',
+  })
+  async obtenerCambios(
+    @Query() query: SyncQuery,
+    @SesionActual() sesion: SesionAutenticada,
+  ): Promise<SyncResponse> {
+    const { servidorTimestamp, hasMore, cambios } = await this.sincronizar.execute(
+      query,
+      sesion.dispositivoId,
+    );
 
     return {
       servidor_timestamp: servidorTimestamp.toISOString(),

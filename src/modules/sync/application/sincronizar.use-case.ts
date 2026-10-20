@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { limiteRetencion } from '../../../shared/domain/retencion-tombstones';
 import { CambiosSync, SyncRepository } from './ports/sync.repository';
 import { calcularSiguienteSince } from '../domain/siguiente-since';
+import { syncVigente } from '../domain/sync-vigente';
 import { SyncQuery } from './dto/sync.query';
 
 /**
@@ -28,11 +30,28 @@ export interface ResultadoSync {
 export class SincronizarUseCase {
   constructor(private readonly repositorio: SyncRepository) {}
 
-  async execute(query: SyncQuery): Promise<ResultadoSync> {
+  async execute(query: SyncQuery, dispositivoId: string): Promise<ResultadoSync> {
     // Se toma antes de consultar: cualquier escritura posterior tendrá un
     // `actualizado_en` más tardío y entrará en la próxima sincronización.
     const inicio = new Date();
     const since = query.since ? new Date(query.since) : null;
+
+    // El 410 va antes de marcar la sync: si se marcara primero, un cliente que
+    // reintentara el mismo `since` viejo pasaría la segunda vez.
+    const ultimaSync = await this.repositorio.ultimaSync(dispositivoId);
+    if (!syncVigente({ since, ultimaSync, ahora: inicio })) {
+      throw new HttpException(
+        {
+          codigo: 'SYNC_DEMASIADO_ANTIGUO',
+          mensaje:
+            'Este dispositivo no sincroniza hace demasiado tiempo. Descarte los datos locales ' +
+            'ya sincronizados y vuelva a pedir el estado completo, sin `since`.',
+          detalles: { since_minimo: limiteRetencion(inicio).toISOString() },
+        },
+        HttpStatus.GONE,
+      );
+    }
+    await this.repositorio.registrarSync(dispositivoId, inicio);
 
     const { cambios, corte } = await this.repositorio.cambiosDesde(since, LIMITE_POR_COLECCION);
     const { servidorTimestamp, hasMore } = calcularSiguienteSince({ inicio, corte });

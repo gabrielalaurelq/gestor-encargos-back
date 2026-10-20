@@ -257,6 +257,23 @@ PRD módulo 16, definido en el Doc 5 Bloque 4. Módulo propio de solo lectura, c
 
 **Bug encontrado por el e2e, presente desde Sprint 1: Prisma no escapa los comodines de `LIKE`.** `contains: '%'` se traduce a `ILIKE '%%%'` y devolvía todas las filas; `_` coincidía con cualquier carácter (`Ana_García` encontraba a "Ana García"). Afectaba también a `GET /clientes?q=`. `shared/infrastructure/prisma/escapar-like.ts` escapa `\`, `%` y `_` con barra invertida —el escape por defecto de `ILIKE` en Postgres— y se aplica en los dos repositorios. No era un problema de seguridad (el valor viaja como parámetro, y filtro + RLS acotan al tenant), sino de exactitud. **Regla para cualquier `contains`/`startsWith` futuro: pasar siempre el texto por `escaparLike()`.**
 
+### Jobs de mantenimiento + `410` en `/sync` (`src/modules/mantenimiento/`)
+
+`PurgaSoftDeleteJob` (Doc 8 Bloque 3, semanal, domingo 03:00 Lima) y `RevisarVencimientosPlanJob` (Doc 10 Bloque 2, diario, 00:10 Lima). Los crons solo disparan casos de uso (`PurgarTombstonesUseCase`, `RevertirPlanesVencidosUseCase`), que los tests llaman directo.
+
+- **Sin rol que salte RLS, tampoco para los jobs.** Un cron no tiene petición ni sesión, así que no puede usar `PrismaNegocio` (REQUEST-scoped): el repositorio usa `PrismaService.enNegocio()` y recorre negocio por negocio, una transacción por negocio, con RLS activo. Un negocio que falla se registra y no detiene a los demás; la purga es idempotente.
+- **La purga deja fuera los objetos con fotos**: `fotos.objeto_recibido_id` es `CASCADE`, y borrar el objeto borraría la fila de la foto **sin borrar su archivo en R2**. Se levanta en el bloque de Fotos, cuando la purga sepa borrar en R2. Las fotos mismas tampoco se purgan todavía.
+- `plan_vence_en` se conserva al volver a FREE, como constancia de cuándo venció.
+- **Una sola instancia (MVP)**: con réplicas, cada una correría su cron. Son idempotentes; al escalar, `pg_try_advisory_lock`.
+
+**`410 SYNC_DEMASIADO_ANTIGUO` — elegido por el usuario. Hueco del Doc 4:** suponía que en 90 días todos los dispositivos ya sincronizaron. Un teléfono que pasa más tiempo sin sincronizar perdía tombstones ya purgados y se quedaba **para siempre** con pagos o trabajos fantasma, sin que nada lo detectara. Ahora `/sync` responde `410` y la app descarta lo ya sincronizado (no la cola Outbox) y repite sin `since`.
+
+- **Un `since` viejo no basta para decidirlo — lo encontré al diseñarlo:** la página 2 de una resincronización completa trae como `since` el corte de la página 1, que en un negocio con historia puede tener más de 90 días. Un `410` por `since` solo habría metido al resync en un bucle infinito, justo en el caso que debía resolver. Lo que distingue los dos casos es **cuándo llamó este dispositivo por última vez**: columna nueva **`dispositivos.ultima_sync_en`** (migración `dispositivo_ultima_sync`, elegida por el usuario frente a quitar el tope de 500 filas). `410` solo si el `since` **y** la última sync son anteriores al horizonte; una última sync desconocida cuenta como vieja.
+- El `410` se evalúa **antes** de marcar la sync: si no, reintentar el mismo `since` viejo pasaría la segunda vez.
+- **Una sola constante para los dos lados**: `shared/domain/retencion-tombstones.ts` (`DIAS_RETENCION_TOMBSTONES = 90`). Si la purga usara un horizonte más corto que `/sync`, se perderían borrados sin detectarlo.
+
+**Incidente al generar la migración — los índices trigram:** `prisma migrate dev` generó **y aplicó a la base local** `DROP INDEX` sobre los 4 índices `gin_trgm_ops`, porque solo existían en el SQL escrito a mano de la migración inicial y Prisma los veía como ajenos. Se revirtió en la base local (columna quitada, índices recreados, registro de la migración borrado) y se declararon los 4 en `schema.prisma` con `type: Gin` y `ops: raw("gin_trgm_ops")` y sus nombres originales, de modo que la migración regenerada solo contiene el `ADD COLUMN` y `prisma migrate diff` no detecta diferencias. **Los índices parciales (`WHERE ...`) de la migración inicial no los toca** — Prisma no los gestiona —, pero conviene revisar cada migración generada antes de aplicarla en cualquier entorno compartido.
+
 ## Pendiente
 
 ### Fechas de hecho: las pone el dispositivo
@@ -282,7 +299,7 @@ Validación (`resolverFechaDeHecho` en `shared/domain/fecha.ts`): hasta **1 día
 
 **Lo que se acepta a cambio:** un teléfono con el reloj mal puesto producirá fechas malas y descuadrará la Caja diaria del negociante. La tolerancia de 1 día acota el futuro, pero no lo elimina. Y la fecha pasa a ser falsificable por el dueño del negocio sobre sus propios datos — sin riesgo entre negocios (RLS y el `negocioId` de la sesión lo impiden); falsear tus propias fechas es un problema de tu contabilidad, no de seguridad. No se puede acotar el pasado contra la creación del encargo, que sería lo natural, porque `creado_en` es del servidor: un encargo creado sin conexión tendría `creado_en` **posterior** a la fecha real de su propio pago.
 - Sprint 5: Dashboard, Dictado por voz (STT), WhatsApp nivel gratuito.
-- **Orden acordado para cerrar el backend del MVP (2026-10-19):** ~~A. historial del cliente~~ → ~~B. Materiales~~ → ~~C. `GET /buscar`~~ → F. `PurgaSoftDeleteJob` + `RevisarVencimientosPlanJob` → D. Fotos (R2 + URLs prefirmadas) → E. `NotificacionesService` (FCM) + `EvaluarRecordatoriosJob`.
+- **Orden acordado para cerrar el backend del MVP (2026-10-19):** ~~A. historial del cliente~~ → ~~B. Materiales~~ → ~~C. `GET /buscar`~~ → ~~F. `PurgaSoftDeleteJob` + `RevisarVencimientosPlanJob`~~ → D. Fotos (R2 + URLs prefirmadas) → E. `NotificacionesService` (FCM) + `EvaluarRecordatoriosJob`.
 - **Caja diaria, Balance de Carga y Calendario no tienen endpoint propio, por diseño** (confirmado con el usuario): el Doc 5 no los define y su Bloque 4 explica por qué — la app es offline-first y las calcula sobre Drift con lo que trae `/sync`. Un endpoint de servidor duplicaría la lógica y daría cifras distintas a las locales sin conexión.
 - **Documentos al día:** el Doc 5 está en **v1.4** y el Doc 8 en **v1.1**, ambos enmendados desde el código (`docs/`, sin commitear). Cada sprint nuevo probablemente aporte otra enmienda: conviene hacerlas al cerrar el sprint, no al final, porque el Doc 5 es el contrato contra el que se escribirá la app Flutter.
 - Elegir proveedor de hosting y habilitar `deploy.yml` (Doc 3 Bloque 5).

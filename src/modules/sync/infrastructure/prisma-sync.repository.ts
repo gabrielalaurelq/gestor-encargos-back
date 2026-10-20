@@ -34,6 +34,21 @@ export class PrismaSyncRepository extends SyncRepository {
     super();
   }
 
+  async ultimaSync(dispositivoId: string): Promise<Date | null> {
+    const fila = await this.prisma.transaccion((tx) =>
+      tx.dispositivo.findUnique({ where: { id: dispositivoId }, select: { ultimaSyncEn: true } }),
+    );
+    return fila?.ultimaSyncEn ?? null;
+  }
+
+  async registrarSync(dispositivoId: string, cuando: Date): Promise<void> {
+    // `updateMany` y no `update`: si la sesión se cerró, la fila no existe y
+    // no hay nada que marcar — no es motivo para fallar la sincronización.
+    await this.prisma.transaccion((tx) =>
+      tx.dispositivo.updateMany({ where: { id: dispositivoId }, data: { ultimaSyncEn: cuando } }),
+    );
+  }
+
   async cambiosDesde(since: Date | null, limite: number): Promise<ResultadoCambios> {
     // `since` es inclusivo (`gte`): si fuera exclusivo, una fila con
     // exactamente la marca del corte se saltaría al paginar. Reenviarla es
