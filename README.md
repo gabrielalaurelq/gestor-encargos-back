@@ -2,7 +2,7 @@
 
 **Estado:** 🔵 En desarrollo — Sprint 0 / Fase 2 (autenticación y multitenancy), ver `docs/11-roadmap.md`
 
-Documentos base, todos aprobados: Doc 3 (Arquitectura), Doc 4 (Base de Datos), Doc 5 (API, **v1.4**) y Doc 8 (Backend, **v1.1**) — ambos enmendados desde el código.
+Documentos base, todos aprobados: Doc 3 (Arquitectura), Doc 4 (Base de Datos), Doc 5 (API, **v1.6**) y Doc 8 (Backend, **v1.1**) — ambos enmendados desde el código.
 
 ## Hecho
 
@@ -317,6 +317,17 @@ PRD módulo 16, definido en el Doc 5 Bloque 4. Módulo propio de solo lectura, c
 | FCM caído | No se reintenta | Mañana se repite igual, y el Dashboard muestra lo mismo (redundancia intencional, PRD 13). |
 
 La migración `negocio_dias_aviso_no_recoge` se generó con `--create-only` y se revisó antes de aplicarla (lección del bloque anterior); el `CHECK` va escrito a mano porque Prisma no los gestiona.
+
+### Orígenes de pago — `GET /origenes-pago` (`src/modules/origenes-pago/`, Doc 5 v1.6)
+
+Pedido por la app al implementar Pagos (S3c del frontend): para registrar un pago necesita el `origen_id`, y ningún endpoint listaba el catálogo.
+
+| Decisión | Elección | Motivo |
+|---|---|---|
+| Fijar los ids en la app | **No**; endpoint de lectura | Elegido por el usuario. Los ids de la semilla son autoincrementales: un cambio del catálogo rompería la app en silencio. |
+| Desactivados | Se listan, con `activo: false` | Un pago viejo tiene que seguir nombrando su origen. Para pagos nuevos sigue mandando `ORIGEN_PAGO_INVALIDO`. |
+| Módulo propio | Sí, no dentro de `encargos` | `origenes_pago` es un catálogo del sistema (sin `negocio_id`, sin RLS), no parte de un agregado. Usa `PrismaService` crudo, como `existeOrigenPago`. |
+| Paginación | No | Cuatro filas. |
 
 ## Pendiente
 

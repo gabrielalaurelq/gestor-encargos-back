@@ -14,6 +14,7 @@ import { ClientesModule } from './modules/clientes/clientes.module';
 import { EncargosModule } from './modules/encargos/encargos.module';
 import { MantenimientoModule } from './modules/mantenimiento/mantenimiento.module';
 import { NegocioModule } from './modules/negocio/negocio.module';
+import { OrigenesPagoModule } from './modules/origenes-pago/origenes-pago.module';
 import { RecordatoriosModule } from './modules/recordatorios/recordatorios.module';
 import { ServiciosModule } from './modules/servicios/servicios.module';
 import { SyncModule } from './modules/sync/sync.module';
@@ -28,8 +29,9 @@ import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-ne
 // APP_GUARD global. Doc 5, Bloque 4: rate limiting con ThrottlerNegocioGuard.
 // Los dos guards se registran acá, en este orden, porque el throttler cuenta
 // por negocio y necesita la sesión que deja el AuthGuard.
-// Módulos: negocio propio, clientes, servicios, encargos, búsqueda global, el
-// pull de sincronización, los jobs de mantenimiento y los recordatorios push.
+// Módulos: negocio propio, clientes, servicios, encargos, orígenes de pago,
+// búsqueda global, el pull de sincronización, los jobs de mantenimiento y los
+// recordatorios push.
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -53,6 +55,7 @@ import { ThrottlerNegocioGuard } from './shared/presentation/guards/throttler-ne
     ClientesModule,
     ServiciosModule,
     EncargosModule,
+    OrigenesPagoModule,
     BusquedaModule,
     SyncModule,
     MantenimientoModule,
