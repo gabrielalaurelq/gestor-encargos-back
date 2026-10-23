@@ -2,15 +2,17 @@
 #   merge a main  → despliegue automático a STAGING
 #   tag vX.Y.Z    → despliegue a PRODUCCIÓN con aprobación manual
 #
-# El proveedor de hosting sigue pendiente de decidir (Railway/Render/Fly.io,
-# Doc 3 Bloque 5), así que este workflow está APAGADO hasta que exista la
-# variable de repositorio DESPLIEGUE_HABILITADO=true. La forma del pipeline
-# ya queda fijada; al elegir proveedor solo hay que reemplazar el último paso
-# de cada job por su CLI y cargar los secretos de cada environment.
+# Staging vive en Railway (decisión del usuario, 2026-10-23): el CLI sube el
+# código y Railway construye el Dockerfile. Producción sigue sin proveedor.
+# El workflow está APAGADO hasta que exista la variable de repositorio
+# DESPLIEGUE_HABILITADO=true (paso a paso en docs/guia-validacion-telefono.md).
 #
-# Configuración en GitHub cuando se habilite:
-#   Settings → Environments → `staging` y `production`
-#     - secret DATABASE_URL (rol NO superusuario, ver infra/README.md)
+# Configuración en GitHub:
+#   Settings → Environments → `staging` (y `production` cuando exista)
+#     - secret DATABASE_URL: la URL PÚBLICA de Railway con el rol gestor_app,
+#       NO superusuario (ver infra/README.md); el pipeline corre fuera de
+#       Railway y no ve su red privada
+#     - secret RAILWAY_TOKEN: token de proyecto del environment de staging
 #     - en `production`: "Required reviewers" = el paso de aprobación manual
 #   Settings → Variables → DESPLIEGUE_HABILITADO = true
 name: Despliegue
@@ -46,10 +48,18 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
-      - name: Desplegar en el proveedor de hosting
-        run: |
-          echo "::error::Proveedor de hosting pendiente (Doc 3 Bloque 5): reemplazar este paso por el CLI de Railway/Render/Fly.io."
-          exit 1
+      # Los orígenes de pago (Doc 4 Bloque 1). Es un upsert: correrla en cada
+      # despliegue no duplica nada.
+      - name: Semilla en staging
+        run: npx prisma db seed
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      # `--ci` espera el build y falla el job si Railway no logra construir.
+      - name: Desplegar en Railway
+        run: npx --yes @railway/cli@4 up --service backend --ci
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
   produccion:
     name: Producción (tag + aprobación manual)
@@ -73,5 +83,5 @@ jobs:
 
       - name: Desplegar en el proveedor de hosting
         run: |
-          echo "::error::Proveedor de hosting pendiente (Doc 3 Bloque 5): reemplazar este paso por el CLI de Railway/Render/Fly.io."
+          echo "::error::Producción todavía no tiene proveedor: staging usa Railway; decidirlo antes del primer tag."
           exit 1
