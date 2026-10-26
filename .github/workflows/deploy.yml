@@ -57,7 +57,7 @@ jobs:
 
       # `--ci` espera el build y falla el job si Railway no logra construir.
       - name: Desplegar en Railway
-        run: npx --yes @railway/cli@4 up --service backend --ci
+        run: npx --yes @railway/cli@5 up --service backend --ci
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
